@@ -1,5 +1,3 @@
-// lib/services/version_check_service.dart
-
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -7,84 +5,134 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class VersionCheckService {
-  static const String _latestReleaseUrl = 'https://api.github.com/repos/Calbrs/SynCal/releases/latest';
-  static const String _htmlReleaseUrl = 'https://github.com/Calbrs/SynCal/releases/';
+  static const String _latestReleaseUrl =
+      'https://api.github.com/repos/Calbrs/SynCal/releases/latest';
 
-  static Future<void> checkAndPromptUpdate(BuildContext context, {bool silent = true}) async {
+  static Future<void> checkAndPromptUpdate(
+    BuildContext context, {
+    bool silent = true,
+  }) async {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
-      final currentVersion = packageInfo.version;
+      final currentVersion = packageInfo.version.trim();
 
-      final response = await http.get(Uri.parse(_latestReleaseUrl));
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        final latestTag = data['tag_name'] as String;
-        
-        final cleanLatest = latestTag.replaceAll('v', '').trim();
-        final cleanCurrent = currentVersion.replaceAll('v', '').trim();
+      final response = await http
+          .get(Uri.parse(_latestReleaseUrl))
+          .timeout(const Duration(seconds: 10));
 
-        if (cleanLatest != cleanCurrent) {
-          if (context.mounted) {
-            _showUpdateDialog(context, latestTag, data['html_url'] ?? _htmlReleaseUrl);
-          }
-        } else {
-          if (!silent && context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: const Text('Your app is up to date.'),
-                backgroundColor: Colors.green,
-                behavior: SnackBarBehavior.floating,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-            );
-          }
+      if (response.statusCode != 200) {
+        throw Exception('GitHub returned ${response.statusCode}');
+      }
+
+      final data = jsonDecode(response.body);
+
+      final latestTag =
+          (data['tag_name'] as String?)?.replaceFirst('v', '').trim() ?? '';
+
+      final releaseUrl =
+          (data['html_url'] as String?) ??
+          'https://github.com/Calbrs/SynCal/releases';
+
+      if (_isNewerVersion(latestTag, currentVersion)) {
+        if (context.mounted) {
+          _showUpdateDialog(
+            context,
+            latestTag,
+            releaseUrl,
+          );
+        }
+      } else {
+        if (!silent && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('You are using the latest version'),
+              backgroundColor: Colors.green,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
         }
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('Version check failed: $e');
+
       if (!silent && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Unable to verify update version.'),
+            content: const Text('Unable to check for updates'),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
         );
       }
     }
   }
 
-  static void _showUpdateDialog(BuildContext context, String newVersion, String url) {
+  static bool _isNewerVersion(
+    String latest,
+    String current,
+  ) {
+    final latestParts =
+        latest.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+
+    final currentParts =
+        current.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+
+    final maxLength =
+        latestParts.length > currentParts.length
+            ? latestParts.length
+            : currentParts.length;
+
+    while (latestParts.length < maxLength) {
+      latestParts.add(0);
+    }
+
+    while (currentParts.length < maxLength) {
+      currentParts.add(0);
+    }
+
+    for (int i = 0; i < maxLength; i++) {
+      if (latestParts[i] > currentParts[i]) {
+        return true;
+      }
+
+      if (latestParts[i] < currentParts[i]) {
+        return false;
+      }
+    }
+
+    return false;
+  }
+
+  static void _showUpdateDialog(
+    BuildContext context,
+    String version,
+    String url,
+  ) {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF2A2A2E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Update Available', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+      builder: (_) => AlertDialog(
+        title: const Text('Update Available'),
         content: Text(
-          'A new version ($newVersion) of SyncCal is available. Install the latest update to get new improvements and features.',
-          style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 14),
+          'Version $version is available.\n\nPlease update SyncCal to continue.',
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Later', style: TextStyle(color: Colors.white54)),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Later'),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.white,
-              foregroundColor: Colors.black,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-            ),
+          FilledButton(
             onPressed: () async {
-              Navigator.pop(ctx);
+              Navigator.pop(context);
+
               final uri = Uri.parse(url);
-              if (await canLaunchUrl(uri)) {
-                await launchUrl(uri, mode: LaunchMode.externalApplication);
-              }
+
+              await launchUrl(
+                uri,
+                mode: LaunchMode.externalApplication,
+              );
             },
-            child: const Text('Install Now', style: TextStyle(fontWeight: FontWeight.bold)),
+            child: const Text('Update'),
           ),
         ],
       ),
