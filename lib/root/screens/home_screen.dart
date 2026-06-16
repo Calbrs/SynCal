@@ -1,5 +1,4 @@
 // lib/root/home_screen.dart
-
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,10 +19,10 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  List<SimCard> _simCards       = [];
-  SimCard?      _selectedSim;
-  bool          _simLoaded      = false;
-  bool          _permissionsGranted = false;
+  List<SimCard> _simCards = [];
+  SimCard? _selectedSim;
+  bool _simLoaded = false;
+  bool _permissionsGranted = false;
 
   @override
   void initState() {
@@ -37,7 +36,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (!granted) {
       setState(() {
-        _simLoaded         = true;
+        _simLoaded = true;
         _permissionsGranted = false;
       });
       return;
@@ -46,17 +45,142 @@ class _HomeScreenState extends State<HomeScreen> {
     final sims = await SmsGatewayService.getSimCards();
     if (mounted) {
       setState(() {
-        _simCards           = sims;
-        _selectedSim        = sims.isNotEmpty ? sims.first : null;
-        _simLoaded          = true;
+        _simCards = sims;
+        _selectedSim = sims.isNotEmpty ? sims.first : null;
+        _simLoaded = true;
         _permissionsGranted = true;
       });
     }
   }
 
+  Widget _drawerTile({
+  required String title,
+  required IconData icon,
+  required VoidCallback onTap,
+}) {
+  return InkWell(
+    onTap: onTap,
+    splashColor: Colors.white.withValues(alpha: 0.05),
+    highlightColor: Colors.white.withValues(alpha: 0.05),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(
+        horizontal: 16,
+        vertical: 15,
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            color: Colors.white70,
+            size: 20,
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ),
+          const Icon(
+            Icons.arrow_forward_ios_rounded,
+            color: Colors.white30,
+            size: 14,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+ void _showMenuDrawer(BuildContext context) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => ClipRRect(
+      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
+          decoration: BoxDecoration(
+            color: const Color(0xFF1E1E22),
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(28),
+            ),
+            border: Border(
+              top: BorderSide(
+                color: Colors.white.withValues(alpha: 0.1),
+                width: 0.5,
+              ),
+            ),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  margin: const EdgeInsets.only(bottom: 24),
+                  decoration: BoxDecoration(
+                    color: Colors.white24,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+
+              Container(
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2C2C2E),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: Column(
+                  children: [
+                    _drawerTile(
+                      title: 'Contacts',
+                      icon: Icons.contacts_rounded,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        context.push('/create-event');
+                      },
+                    ),
+
+                    Divider(
+                      height: 1,
+                      thickness: 0.5,
+                      color: Colors.white.withValues(alpha: 0.08),
+                    ),
+
+                    _drawerTile(
+                      title: 'Settings',
+                      icon: Icons.settings_rounded,
+                      onTap: () {
+                        Navigator.pop(ctx);
+                        context.push('/settings');
+                      },
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 16),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+ 
   void _showMessageDrawer(BuildContext context) {
     final msgController = TextEditingController();
-    SimCard? drawerSim  = _selectedSim;
+    SimCard? drawerSim = _selectedSim;
 
     showModalBottomSheet(
       context: context,
@@ -67,16 +191,16 @@ class _HomeScreenState extends State<HomeScreen> {
           return Padding(
             padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
             child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
               child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 25.0, sigmaY: 25.0),
+                filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
                 child: Container(
-                  padding: const EdgeInsets.all(24.0),
+                  padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF2A2A2E),
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                    color: const Color(0xFF1E1E22),
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
                     border: Border(
-                      top: BorderSide(color: Colors.white.withValues(alpha: 0.12), width: 0.5),
+                      top: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 0.5),
                     ),
                   ),
                   child: Column(
@@ -87,23 +211,21 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Container(
                           width: 36,
                           height: 4,
+                          margin: const EdgeInsets.only(bottom: 24),
                           decoration: BoxDecoration(
                             color: Colors.white24,
                             borderRadius: BorderRadius.circular(2),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 16),
-
                       if (_simCards.length > 1) ...[
-                        Text('SIM card',
-                            style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 13)),
-                        const SizedBox(height: 8),
+                        const Text('SIM Card', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                        const SizedBox(height: 12),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.07),
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(14),
                             border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
                           ),
                           child: DropdownButtonHideUnderline(
@@ -123,9 +245,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 16),
+                        const SizedBox(height: 20),
                       ],
-
                       TextField(
                         controller: msgController,
                         maxLines: 4,
@@ -138,30 +259,28 @@ class _HomeScreenState extends State<HomeScreen> {
                           fillColor: Colors.white.withValues(alpha: 0.06),
                           contentPadding: const EdgeInsets.all(16),
                           enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(14),
                             borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
                           ),
                           focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(14),
                             borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 24),
-
+                      const SizedBox(height: 28),
                       Row(
                         children: [
                           Expanded(
                             child: TextButton(
                               style: TextButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                padding: const EdgeInsets.symmetric(vertical: 15),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                                 backgroundColor: Colors.white.withValues(alpha: 0.1),
                               ),
                               onPressed: () => Navigator.pop(ctx),
-                              child: Text('Cancel',
-                                  style: TextStyle(color: Colors.white.withValues(alpha: 0.8),
-                                      fontSize: 16, fontWeight: FontWeight.w600)),
+                              child: const Text('Cancel',
+                                  style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w600)),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -170,7 +289,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.white,
                                 foregroundColor: Colors.black,
-                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                padding: const EdgeInsets.symmetric(vertical: 15),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                               ),
                               onPressed: () {
@@ -376,34 +495,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _confirmClearAll(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF2A2A2E),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Clear all logs?', style: TextStyle(color: Colors.white)),
-        content: Text(
-          'All session logs will be permanently deleted. This cannot be undone.',
-          style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 14),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              context.read<SmsSessionStore>().clearAllSessions();
-            },
-            child: const Text('Clear all', style: TextStyle(color: Colors.redAccent)),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _recipientIcon(SmsRecipientStatus status) {
     switch (status) {
       case SmsRecipientStatus.sent:
@@ -483,11 +574,11 @@ class _HomeScreenState extends State<HomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('SyncCal',
+                    const Text('SyncCal',
                         style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white.withValues(alpha: 0.95))),
+                            color: Colors.white)),
                     Text('powered by calbrs',
                         style: TextStyle(
                             fontSize: 11,
@@ -514,27 +605,19 @@ class _HomeScreenState extends State<HomeScreen> {
                             decoration: BoxDecoration(color: indicatorColor, shape: BoxShape.circle),
                           ),
                           const SizedBox(width: 6),
-                          AnimatedDefaultTextStyle(
-                            duration: const Duration(milliseconds: 400),
-                            style: TextStyle(color: indicatorColor, fontSize: 13, fontWeight: FontWeight.w500),
-                            child: Text(indicatorLabel),
-                          ),
+                          Text(indicatorLabel,
+                              style: TextStyle(
+                                color: indicatorColor,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              )),
                         ],
                       ),
                     ),
                     const SizedBox(width: 8),
                     IconButton(
-                      icon: const Icon(Icons.add_rounded, color: Colors.white, size: 26),
-                      onPressed: () => context.push('/create-event'),
-                    ),
-                    Consumer<SmsSessionStore>(
-                      builder: (ctx, store, _) => store.sessions.isNotEmpty
-                          ? IconButton(
-                              icon: const Icon(Icons.delete_sweep_outlined, color: Colors.white60, size: 24),
-                              tooltip: 'Clear all logs',
-                              onPressed: () => _confirmClearAll(ctx),
-                            )
-                          : const SizedBox.shrink(),
+                      icon: const Icon(Icons.menu_rounded, color: Colors.white, size: 26),
+                      onPressed: () => _showMenuDrawer(context),
                     ),
                   ],
                 ),
@@ -582,7 +665,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(30),
                     child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 15.0, sigmaY: 15.0),
+                      filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
                       child: Container(
                         decoration: BoxDecoration(
                           color: const Color(0x26FFFFFF),

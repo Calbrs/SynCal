@@ -1,3 +1,6 @@
+// lib/app_routes.dart
+
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import 'screens/create_event_screen.dart';
@@ -11,28 +14,74 @@ class AppRoutes {
   static const String settings = '/settings';
   static const String createEvent = '/create-event';
 
+  static Page<dynamic> _buildSmoothTransitionPage({
+    required LocalKey key,
+    required Widget child,
+  }) {
+    return CustomTransitionPage<void>(
+      key: key,
+      child: child,
+      transitionDuration: const Duration(milliseconds: 400),
+      reverseTransitionDuration: const Duration(milliseconds: 350),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        final slideIn = Tween<Offset>(
+          begin: const Offset(0.0, 0.05),
+          end: Offset.zero,
+        ).animate(CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+        ));
+
+        final fadeIn = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeIn,
+        );
+
+        return FadeTransition(
+          opacity: fadeIn,
+          child: SlideTransition(
+            position: slideIn,
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+
   static final GoRouter router = GoRouter(
     initialLocation: splash,
     routes: [
       GoRoute(
         path: splash,
         name: 'splash',
-        builder: (context, state) => const SplashScreen(),
+        pageBuilder: (context, state) => _buildSmoothTransitionPage(
+          key: state.pageKey,
+          child: const SplashScreen(),
+        ),
       ),
       GoRoute(
         path: home,
         name: 'home',
-        builder: (context, state) => const HomeScreen(),
+        pageBuilder: (context, state) => _buildSmoothTransitionPage(
+          key: state.pageKey,
+          child: const HomeScreen(),
+        ),
       ),
       GoRoute(
         path: settings,
         name: 'settings',
-        builder: (context, state) => const SettingsScreen(),
+        pageBuilder: (context, state) => _buildSmoothTransitionPage(
+          key: state.pageKey,
+          child: const SettingsScreen(),
+        ),
       ),
       GoRoute(
         path: createEvent,
         name: 'createEvent',
-        builder: (context, state) => const CreateEventScreen(),
+        pageBuilder: (context, state) => _buildSmoothTransitionPage(
+          key: state.pageKey,
+          child: const CreateEventScreen(),
+        ),
       ),
     ],
   );
