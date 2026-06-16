@@ -9,7 +9,6 @@ import 'services/app_logger.dart';
 import 'services/sms_gateway_service.dart';
 import 'services/sms_session_store.dart';
 import 'core/api_config.dart';
-import 'core/api_client.dart';
 
 const String appTitle = 'SyncCal';
 

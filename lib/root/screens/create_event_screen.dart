@@ -22,7 +22,6 @@ class _CreateEventScreenState extends State<CreateEventScreen>
   final _contactBox = Hive.box<Contact>('contacts');
   List<Contact> contacts = [];
   bool _menuOpen = false;
-  bool _isSyncing = false;
   DateTime? _lastSync;
   OverlayEntry? _overlayEntry;
   final _menuButtonKey = GlobalKey();
@@ -87,15 +86,11 @@ class _CreateEventScreenState extends State<CreateEventScreen>
 
   Future<void> _performSync({bool silent = false}) async {
     if (!mounted || ApiClient.instance.linkedUser == null) return;
-    if (_isSyncing) return;
-    setState(() => _isSyncing = true);
     try {
       final synced = await ApiClient.instance.syncContacts();
       _mergeContacts(synced);
-      setState(() { _lastSync = ApiClient.instance.lastSync; _isSyncing = false; });
-      if (!silent && mounted) _showSnack('Synced ${synced.length} contacts', color: Colors.greenAccent);
+      setState(() { _lastSync = ApiClient.instance.lastSync; });
     } catch (e) {
-      setState(() => _isSyncing = false);
       if (!silent && mounted) _showSnack(e.toString(), color: Colors.redAccent);
     }
   }
@@ -378,7 +373,7 @@ void _openMenu() {
                 if (mounted) {
                   setState(() => _lastSync = ApiClient.instance.lastSync);
                   _showSnack('Linked to $username successfully', color: Colors.greenAccent);
-                  _performSync(silent: false);
+                  _performSync(silent: true); // sync silently after linking
                   _startPeriodicSync();
                 }
               } on ApiException catch (e) {
@@ -428,7 +423,9 @@ void _openMenu() {
             if (name.isEmpty || phones.isEmpty) continue;
             if (_contactBox.values.any((c) =>
                 c.name.toLowerCase() == name.toLowerCase() &&
-                c.phones.isNotEmpty && c.phones[0] == phones[0])) continue;
+                c.phones.isNotEmpty && c.phones[0] == phones[0])) {
+              continue;
+            }
             _contactBox.add(Contact(name: name, phones: phones, createdAt: DateTime.now()));
           }
           _loadContacts();
@@ -807,11 +804,7 @@ void _openMenu() {
                       contentPadding: const EdgeInsets.symmetric(vertical: 12))),
               )),
               const SizedBox(width: 8),
-              if (_isSyncing)
-                const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 6),
-                  child: SizedBox(width: 18, height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.greenAccent))),
+              // Spinner removed – sync runs silently in the background
               GestureDetector(
                 key: _menuButtonKey,
                 onTap: _toggleMenu,
