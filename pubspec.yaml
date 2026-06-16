@@ -2,7 +2,7 @@ name: synccal
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 0.0.01+001
+version: 0.0.02
 
 environment:
   sdk: ^3.11.5
