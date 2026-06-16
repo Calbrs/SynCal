@@ -26,16 +26,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.initState();
     _loadAppVersion();
     _loadSyncCalId();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      VersionCheckService.checkAndPromptUpdate(context, silent: true);
-    });
   }
 
   Future<void> _loadAppVersion() async {
     try {
       final packageInfo = await PackageInfo.fromPlatform();
       setState(() {
-        _appVersion = packageInfo.version;
+        _appVersion = '${packageInfo.version} (${packageInfo.buildNumber})';
       });
     } catch (_) {}
   }
@@ -46,6 +43,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final id = linkedUser?.syncalId ?? linkedUser?.id;
       _syncCalId = (id is String ? id : id?.toString()) ?? 'Not linked';
     });
+  }
+
+  Future<void> _checkForUpdates() async {
+    await VersionCheckService.checkAndPromptUpdate(
+      context,
+      silent: false,
+    );
   }
 
   void _showReportProblemModal(BuildContext context) {
@@ -71,7 +75,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: const Color(0xFF1E1E22),
                       borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
                       border: Border(
-                        top: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 0.5),
+                        top: BorderSide(
+                          color: Colors.white.withValues(alpha: 0.1),
+                          width: 0.5,
+                        ),
                       ),
                     ),
                     child: Column(
@@ -91,7 +98,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         ),
                         const Text(
                           'Report a Problem',
-                          style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         const SizedBox(height: 16),
                         TextField(
@@ -101,17 +112,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           cursorColor: Colors.white,
                           decoration: InputDecoration(
                             hintText: 'Describe the problem you encountered...',
-                            hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.4)),
+                            hintStyle: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.4),
+                            ),
                             filled: true,
                             fillColor: Colors.white.withValues(alpha: 0.06),
                             contentPadding: const EdgeInsets.all(16),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                              borderSide: BorderSide(
+                                color: Colors.white.withValues(alpha: 0.1),
+                              ),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
+                              borderSide: BorderSide(
+                                color: Colors.white.withValues(alpha: 0.3),
+                              ),
                             ),
                           ),
                         ),
@@ -122,12 +139,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               child: TextButton(
                                 style: TextButton.styleFrom(
                                   padding: const EdgeInsets.symmetric(vertical: 15),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(30),
+                                  ),
                                   backgroundColor: Colors.white.withValues(alpha: 0.1),
                                 ),
-                                onPressed: isSubmitting ? null : () => Navigator.pop(ctx),
-                                child: const Text('Cancel',
-                                    style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w600)),
+                                onPressed: () => Navigator.pop(ctx),
+                                child: const Text(
+                                  'Cancel',
+                                  style: TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -137,34 +162,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   backgroundColor: Colors.white,
                                   foregroundColor: Colors.black,
                                   padding: const EdgeInsets.symmetric(vertical: 15),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(30),
+                                  ),
                                 ),
                                 onPressed: isSubmitting
                                     ? null
                                     : () async {
-                                        final description = problemController.text.trim();
+                                        final description =
+                                            problemController.text.trim();
                                         if (description.isEmpty) return;
 
                                         setModalState(() => isSubmitting = true);
 
                                         try {
                                           final response = await http.post(
-                                            Uri.parse('https://your-api-domain.com/api/report_problem.php'),
-                                            headers: {'Content-Type': 'application/json'},
+                                            Uri.parse(
+                                              'https://your-api-domain.com/api/report_problem.php',
+                                            ),
+                                            headers: {
+                                              'Content-Type': 'application/json',
+                                            },
                                             body: jsonEncode({
-                                              'synccal_id': _syncCalId == 'Not linked' ? '' : _syncCalId,
+                                              'synccal_id':
+                                                  _syncCalId == 'Not linked'
+                                                      ? ''
+                                                      : _syncCalId,
                                               'description': description,
                                             }),
                                           );
 
                                           if (response.statusCode == 200) {
-                                            if (ctx.mounted) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
+                                            if (mounted) {
+                                              ScaffoldMessenger.of(context)
+                                                  .showSnackBar(
                                                 SnackBar(
-                                                  content: const Text('Problem reported successfully.'),
+                                                  content: const Text(
+                                                    'Problem reported successfully.',
+                                                  ),
                                                   backgroundColor: Colors.green,
-                                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                                  behavior: SnackBarBehavior.floating,
+                                                  behavior:
+                                                      SnackBarBehavior.floating,
                                                 ),
                                               );
                                             }
@@ -172,28 +210,40 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                             throw Exception();
                                           }
                                         } catch (_) {
-                                          if (ctx.mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context)
+                                                .showSnackBar(
                                               SnackBar(
-                                                content: const Text('Failed to submit report. Please try again.'),
-                                                backgroundColor: Colors.redAccent,
-                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                                behavior: SnackBarBehavior.floating,
+                                                content: const Text(
+                                                  'Failed to submit report.',
+                                                ),
+                                                backgroundColor:
+                                                    Colors.redAccent,
+                                                behavior:
+                                                    SnackBarBehavior.floating,
                                               ),
                                             );
                                           }
                                         } finally {
-                                          if (ctx.mounted) Navigator.pop(ctx);
+                                          if (mounted) Navigator.pop(ctx);
                                         }
                                       },
                                 child: isSubmitting
                                     ? const SizedBox(
                                         width: 20,
                                         height: 20,
-                                        child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2),
+                                        child: CircularProgressIndicator(
+                                          color: Colors.black,
+                                          strokeWidth: 2,
+                                        ),
                                       )
-                                    : const Text('Submit',
-                                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                    : const Text(
+                                        'Submit',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
                               ),
                             ),
                           ],
@@ -213,18 +263,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1C1C1E), // iOS Background Dark
+      backgroundColor: const Color(0xFF1C1C1E),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1C1C1E),
         elevation: 0,
         scrolledUnderElevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 20),
+          icon: const Icon(
+            Icons.arrow_back_ios_new_rounded,
+            color: Colors.white,
+            size: 20,
+          ),
           onPressed: () => context.pop(),
         ),
         title: const Text(
           'Settings',
-          style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600),
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 17,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         centerTitle: true,
       ),
@@ -233,78 +291,53 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ListView(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             children: [
-              // 1. SyncCal ID (Independent Block)
-              Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2C2C2E),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: _settingsTile(
-                  title: 'SyncCal ID',
-                  subtitle: _syncCalId,
-                  trailing: IconButton(
-                    icon: const Icon(Icons.copy_rounded, color: Colors.white54, size: 20),
-                    onPressed: () {
-                      if (_syncCalId == 'Not linked') return;
-                      Clipboard.setData(ClipboardData(text: _syncCalId));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: const Text('SyncCal ID copied to clipboard'),
-                          backgroundColor: const Color(0xFF3A3A3C),
-                          behavior: SnackBarBehavior.floating,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12), // Nafasi kati ya makontena
-
-              // 2. Report a Problem (Independent Block)
-              Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2C2C2E),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: _settingsTile(
-                  title: 'Report a Problem',
-                  trailing: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 16),
-                  onTap: () => _showReportProblemModal(context),
+              _settingsBlock(
+                title: 'SyncCal ID',
+                subtitle: _syncCalId,
+                trailing: IconButton(
+                  icon: const Icon(Icons.copy_rounded,
+                      color: Colors.white54, size: 20),
+                  onPressed: () {
+                    if (_syncCalId == 'Not linked') return;
+                    Clipboard.setData(ClipboardData(text: _syncCalId));
+                  },
                 ),
               ),
               const SizedBox(height: 12),
 
-              // 3. Check for Updates (Independent Block)
-              Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2C2C2E),
-                  borderRadius: BorderRadius.circular(12),
+              _settingsBlock(
+                title: 'Report a Problem',
+                trailing: const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: Colors.white30,
+                  size: 16,
                 ),
-                clipBehavior: Clip.antiAlias,
-                child: _settingsTile(
-                  title: 'Check for Updates',
-                  trailing: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 16),
-                  onTap: () => VersionCheckService.checkAndPromptUpdate(context, silent: false),
+                onTap: () => _showReportProblemModal(context),
+              ),
+              const SizedBox(height: 12),
+
+              _settingsBlock(
+                title: 'Check for Updates',
+                trailing: const Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: Colors.white30,
+                  size: 16,
                 ),
+                onTap: _checkForUpdates,
               ),
             ],
           ),
-          
-          // Version info ya chini kabisa
+
           Positioned(
             left: 0,
             right: 0,
             bottom: 24,
             child: Text(
-              'Version $_appVersion',
+              'SyncCal v$_appVersion',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.3),
                 fontSize: 13,
-                letterSpacing: 0.3,
               ),
             ),
           ),
@@ -313,48 +346,52 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  Widget _settingsTile({
+  Widget _settingsBlock({
     required String title,
     String? subtitle,
     Widget? trailing,
     VoidCallback? onTap,
   }) {
-    return InkWell(
-      onTap: onTap,
-      splashColor: Colors.white.withValues(alpha: 0.05),
-      highlightColor: Colors.white.withValues(alpha: 0.05),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    title,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w400,
-                    ),
-                  ),
-                  if (subtitle != null) ...[
-                    const SizedBox(height: 3),
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF2C2C2E),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      subtitle,
+                      title,
                       style: const TextStyle(
-                        color: Colors.white54,
-                        fontSize: 14,
+                        color: Colors.white,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w400,
                       ),
                     ),
+                    if (subtitle != null) ...[
+                      const SizedBox(height: 3),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
-            ),
-            ?trailing,
-          ],
+              ?trailing,
+            ],
+          ),
         ),
       ),
     );

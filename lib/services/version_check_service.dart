@@ -18,34 +18,49 @@ class VersionCheckService {
 
       final response = await http
           .get(Uri.parse(_latestReleaseUrl))
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 12));
+
+      if (response.statusCode == 404) {
+        // No releases yet on GitHub
+        if (!silent && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('No releases found on GitHub yet'),
+              backgroundColor: Colors.orange,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+        return;
+      }
 
       if (response.statusCode != 200) {
         throw Exception('GitHub returned ${response.statusCode}');
       }
 
-      final data = jsonDecode(response.body);
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
 
-      final latestTag =
-          (data['tag_name'] as String?)?.replaceFirst('v', '').trim() ?? '';
+      final latestTag = (data['tag_name'] as String?)
+              ?.replaceFirst('v', '')
+              .trim() ??
+          '';
 
-      final releaseUrl =
-          (data['html_url'] as String?) ??
+      final releaseUrl = (data['html_url'] as String?) ??
           'https://github.com/Calbrs/SynCal/releases';
+
+      if (latestTag.isEmpty) {
+        throw Exception('Invalid release data from GitHub');
+      }
 
       if (_isNewerVersion(latestTag, currentVersion)) {
         if (context.mounted) {
-          _showUpdateDialog(
-            context,
-            latestTag,
-            releaseUrl,
-          );
+          _showUpdateDialog(context, latestTag, releaseUrl);
         }
       } else {
         if (!silent && context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('You are using the latest version'),
+            const SnackBar(
+              content: Text('You are using the latest version'),
               backgroundColor: Colors.green,
               behavior: SnackBarBehavior.floating,
             ),
@@ -57,8 +72,8 @@ class VersionCheckService {
 
       if (!silent && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Unable to check for updates'),
+          const SnackBar(
+            content: Text('Unable to check for updates'),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,
           ),
@@ -67,39 +82,32 @@ class VersionCheckService {
     }
   }
 
-  static bool _isNewerVersion(
-    String latest,
-    String current,
-  ) {
-    final latestParts =
-        latest.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+  static bool _isNewerVersion(String latest, String current) {
+    final latestParts = latest
+        .split('.')
+        .map((e) => int.tryParse(e.trim()) ?? 0)
+        .toList();
 
-    final currentParts =
-        current.split('.').map((e) => int.tryParse(e) ?? 0).toList();
+    final currentParts = current
+        .split('.')
+        .map((e) => int.tryParse(e.trim()) ?? 0)
+        .toList();
 
-    final maxLength =
-        latestParts.length > currentParts.length
-            ? latestParts.length
-            : currentParts.length;
+    final maxLength = latestParts.length > currentParts.length
+        ? latestParts.length
+        : currentParts.length;
 
     while (latestParts.length < maxLength) {
       latestParts.add(0);
     }
-
     while (currentParts.length < maxLength) {
       currentParts.add(0);
     }
 
     for (int i = 0; i < maxLength; i++) {
-      if (latestParts[i] > currentParts[i]) {
-        return true;
-      }
-
-      if (latestParts[i] < currentParts[i]) {
-        return false;
-      }
+      if (latestParts[i] > currentParts[i]) return true;
+      if (latestParts[i] < currentParts[i]) return false;
     }
-
     return false;
   }
 
@@ -124,9 +132,7 @@ class VersionCheckService {
           FilledButton(
             onPressed: () async {
               Navigator.pop(context);
-
               final uri = Uri.parse(url);
-
               await launchUrl(
                 uri,
                 mode: LaunchMode.externalApplication,
