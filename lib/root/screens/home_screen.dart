@@ -1,4 +1,4 @@
-// lib/root/home_screen.dart
+// lib/root/screens/home_screen.dart
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import '../models/sms_session.dart';
 import '../../services/sms_gateway_service.dart';
 import '../../services/sms_session_store.dart';
+import '../../services/version_check_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -23,10 +24,20 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _simLoaded = false;
   bool _permissionsGranted = false;
 
+  bool _showUpdateBanner = false;
+  String? _latestVersion;
+  String? _localApkPath;
+  bool _isDownloading = false;
+  double _downloadProgress = 0.0;
+  String? _updateError;
+
+  static const _channel = MethodChannel('com.example.synccal/sms');
+
   @override
   void initState() {
     super.initState();
     _initSms();
+    _checkForUpdate();
   }
 
   Future<void> _initSms() async {
@@ -52,131 +63,473 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Widget _drawerTile({
-  required String title,
-  required IconData icon,
-  required VoidCallback onTap,
-}) {
-  return InkWell(
-    onTap: onTap,
-    splashColor: Colors.white.withValues(alpha: 0.05),
-    highlightColor: Colors.white.withValues(alpha: 0.05),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: 15,
-      ),
-      child: Row(
-        children: [
-          Icon(
-            icon,
-            color: Colors.white70,
-            size: 20,
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w400,
-              ),
-            ),
-          ),
-          const Icon(
-            Icons.arrow_forward_ios_rounded,
-            color: Colors.white30,
-            size: 14,
-          ),
-        ],
-      ),
-    ),
-  );
-}
+  Future<void> _checkForUpdate() async {
+    try {
+      final result = await VersionCheckService.checkForUpdate();
+      if (!mounted) return;
+      if (result != null && result.hasUpdate) {
+        setState(() {
+          _showUpdateBanner = true;
+          _latestVersion = result.latestVersion;
+          _localApkPath = result.localApkPath;
+        });
+      }
+    } catch (_) {}
+  }
 
- void _showMenuDrawer(BuildContext context) {
-  showModalBottomSheet(
-    context: context,
-    isScrollControlled: true,
-    backgroundColor: Colors.transparent,
-    builder: (ctx) => ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
-          decoration: BoxDecoration(
-            color: const Color(0xFF1E1E22),
-            borderRadius: const BorderRadius.vertical(
-              top: Radius.circular(28),
+  void _startDownload() async {
+    if (_latestVersion == null) return;
+
+    setState(() {
+      _isDownloading = true;
+      _downloadProgress = 0.0;
+      _updateError = null;
+    });
+
+    try {
+      final apkPath = await VersionCheckService.downloadApk(
+        version: _latestVersion!,
+        onProgress: (progress) {
+          if (mounted) {
+            setState(() => _downloadProgress = progress);
+          }
+        },
+      );
+
+      if (mounted) {
+        setState(() {
+          _localApkPath = apkPath;
+          _isDownloading = false;
+          _downloadProgress = 1.0;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isDownloading = false;
+          _updateError = e.toString();
+        });
+      }
+    }
+  }
+
+  Future<void> _triggerUpdate() async {
+    if (_localApkPath != null) {
+      try {
+        await _channel.invokeMethod('installApk', {'filePath': _localApkPath});
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Install failed: $e'),
+              backgroundColor: Colors.orangeAccent,
             ),
-            border: Border(
-              top: BorderSide(
-                color: Colors.white.withValues(alpha: 0.1),
-                width: 0.5,
+          );
+        }
+      }
+    } else if (!_isDownloading) {
+      _startDownload();
+    }
+  }
+
+  Widget _buildUpdateBanner() {
+    final isReady = _localApkPath != null && !_isDownloading;
+    final showProgress = _isDownloading;
+
+    return AnimatedSlide(
+      offset: _showUpdateBanner ? Offset.zero : const Offset(0, 1),
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+      child: AnimatedOpacity(
+        opacity: _showUpdateBanner ? 1.0 : 0.0,
+        duration: const Duration(milliseconds: 300),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFB800).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                    color: const Color(0xFFFFB800).withValues(alpha: 0.3),
+                    width: 0.5),
               ),
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 24),
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(2),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFB800).withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(Icons.system_update_rounded,
+                            color: Color(0xFFFFB800), size: 18),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text(
+                              'Update available',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (_latestVersion != null)
+                              Text(
+                                'v$_latestVersion',
+                                style: TextStyle(
+                                  color: Colors.white.withValues(alpha: 0.55),
+                                  fontSize: 12,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      if (showProgress)
+                        SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            value: _downloadProgress,
+                            strokeWidth: 2.5,
+                            color: Colors.white,
+                          ),
+                        )
+                      else
+                        GestureDetector(
+                          onTap: _triggerUpdate,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 7),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFB800),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              isReady ? 'Install' : 'Download',
+                              style: const TextStyle(
+                                color: Colors.black,
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      const SizedBox(width: 8),
+                      GestureDetector(
+                        onTap: () => setState(() => _showUpdateBanner = false),
+                        child: Icon(Icons.close_rounded,
+                            color: Colors.white.withValues(alpha: 0.35), size: 18),
+                      ),
+                    ],
                   ),
-                ),
-              ),
-
-              Container(
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2C2C2E),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                clipBehavior: Clip.antiAlias,
-                child: Column(
-                  children: [
-                    _drawerTile(
-                      title: 'Contacts',
-                      icon: Icons.contacts_rounded,
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        context.push('/create-event');
-                      },
+                  if (showProgress) ...[
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                      value: _downloadProgress,
+                      minHeight: 4,
+                      backgroundColor: Colors.white.withValues(alpha: 0.1),
+                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFFB800)),
                     ),
-
-                    Divider(
-                      height: 1,
-                      thickness: 0.5,
-                      color: Colors.white.withValues(alpha: 0.08),
-                    ),
-
-                    _drawerTile(
-                      title: 'Settings',
-                      icon: Icons.settings_rounded,
-                      onTap: () {
-                        Navigator.pop(ctx);
-                        context.push('/settings');
-                      },
+                    const SizedBox(height: 4),
+                    Text(
+                      '${(_downloadProgress * 100).toStringAsFixed(0)}% downloaded',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.7),
+                        fontSize: 11.5,
+                      ),
                     ),
                   ],
-                ),
+                  if (_updateError != null)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Text(
+                        'Download failed: ${_updateError!.substring(0, 60)}${_updateError!.length > 60 ? '...' : ''}',
+                        style: const TextStyle(color: Colors.redAccent, fontSize: 11),
+                      ),
+                    ),
+                ],
               ),
-
-              const SizedBox(height: 16),
-            ],
+            ),
           ),
         ),
       ),
-    ),
-  );
-}
- 
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final indicatorColor = _permissionsGranted ? Colors.green : Colors.orangeAccent;
+    final indicatorLabel = _permissionsGranted ? 'Online' : 'No Permission';
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
+        backgroundColor: const Color(0xFF1C1C1E),
+        extendBody: true,
+        appBar: PreferredSize(
+          preferredSize: const Size.fromHeight(kToolbarHeight),
+          child: AppBar(
+            backgroundColor: Colors.transparent,
+            elevation: 0,
+            automaticallyImplyLeading: false,
+            title: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('SyncCal',
+                        style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white)),
+                    Text('powered by calbrs',
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w400,
+                            color: Colors.white.withValues(alpha: 0.5),
+                            letterSpacing: 0.5)),
+                  ],
+                ),
+                Row(
+                  children: [
+                    AnimatedContainer(
+                      duration: const Duration(milliseconds: 400),
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: indicatorColor.withValues(alpha: 0.2),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        children: [
+                          AnimatedContainer(
+                            duration: const Duration(milliseconds: 400),
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                                color: indicatorColor,
+                                shape: BoxShape.circle),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(indicatorLabel,
+                              style: TextStyle(
+                                color: indicatorColor,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              )),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.menu_rounded, color: Colors.white, size: 26),
+                      onPressed: () => _showMenuDrawer(context),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            shape: Border(
+              bottom: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+            ),
+          ),
+        ),
+        body: Consumer<SmsSessionStore>(
+          builder: (context, store, _) {
+            if (!store.isLoaded) {
+              return const Center(
+                child: CircularProgressIndicator(color: Colors.white30, strokeWidth: 2),
+              );
+            }
+
+            return Stack(
+              children: [
+                store.sessions.isEmpty
+                    ? Center(
+                        child: Text(
+                          'No messages sent yet.\nTap Send Message to start.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              color: Colors.white.withValues(alpha: 0.35),
+                              fontSize: 15),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 160),
+                        itemCount: store.sessions.length,
+                        itemBuilder: (context, index) {
+                          final session = store.sessions[index];
+                          return _SessionCard(
+                            session: session,
+                            onTap: () => _showSessionDetail(context, session),
+                            onDelete: () => _confirmDeleteSession(context, session),
+                          );
+                        },
+                      ),
+                Positioned(
+                  left: 20,
+                  right: 20,
+                  bottom: 10,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_showUpdateBanner) ...[
+                        _buildUpdateBanner(),
+                        const SizedBox(height: 10),
+                      ],
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 5),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(30),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                            child: Container(
+                              width: double.infinity,
+                              decoration: BoxDecoration(
+                                color: const Color(0x26FFFFFF),
+                                borderRadius: BorderRadius.circular(30),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.15),
+                                  width: 0.5,
+                                ),
+                              ),
+                              child: SizedBox(
+                                height: 44,
+                                child: ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.transparent,
+                                    shadowColor: Colors.transparent,
+                                    padding: EdgeInsets.zero,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                                  ),
+                                  onPressed: _simLoaded && _permissionsGranted
+                                      ? () => _showMessageDrawer(context)
+                                      : null,
+                                  child: Text(
+                                    _permissionsGranted ? 'Send Message' : 'Permissions Required',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      letterSpacing: 0.3,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  // ==================== Drawer & Modals ====================
+
+  void _showMenuDrawer(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
+            decoration: BoxDecoration(
+              color: const Color(0xFF1E1E22),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 0.5)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 24),
+                    decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                  ),
+                ),
+                Container(
+                  decoration: BoxDecoration(color: const Color(0xFF2C2C2E), borderRadius: BorderRadius.circular(12)),
+                  clipBehavior: Clip.antiAlias,
+                  child: Column(
+                    children: [
+                      _drawerTile(
+                        title: 'Contacts',
+                        icon: Icons.contacts_rounded,
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          context.push('/create-event');
+                        },
+                      ),
+                      Divider(height: 1, thickness: 0.5, color: Colors.white.withValues(alpha: 0.08)),
+                      _drawerTile(
+                        title: 'Settings',
+                        icon: Icons.settings_rounded,
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          context.push('/settings');
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _drawerTile({
+    required String title,
+    required IconData icon,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      splashColor: Colors.white.withValues(alpha: 0.05),
+      highlightColor: Colors.white.withValues(alpha: 0.05),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        child: Row(
+          children: [
+            Icon(icon, color: Colors.white70, size: 20),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Text(title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w400)),
+            ),
+            const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showMessageDrawer(BuildContext context) {
     final msgController = TextEditingController();
     SimCard? drawerSim = _selectedSim;
@@ -198,9 +551,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   decoration: BoxDecoration(
                     color: const Color(0xFF1E1E22),
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                    border: Border(
-                      top: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 0.5),
-                    ),
+                    border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 0.5)),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -211,10 +562,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           width: 36,
                           height: 4,
                           margin: const EdgeInsets.only(bottom: 24),
-                          decoration: BoxDecoration(
-                            color: Colors.white24,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
+                          decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
                         ),
                       ),
                       if (_simCards.length > 1) ...[
@@ -278,8 +626,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 backgroundColor: Colors.white.withValues(alpha: 0.1),
                               ),
                               onPressed: () => Navigator.pop(ctx),
-                              child: const Text('Cancel',
-                                  style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w600)),
+                              child: const Text('Cancel', style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w600)),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -301,8 +648,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       simLabel: drawerSim?.displayName ?? 'Default SIM',
                                     );
                               },
-                              child: const Text('Send',
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                              child: const Text('Send', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
                             ),
                           ),
                         ],
@@ -336,9 +682,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 decoration: BoxDecoration(
                   color: const Color(0xFF2A2A2E),
                   borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-                  border: Border(
-                    top: BorderSide(color: Colors.white.withValues(alpha: 0.12), width: 0.5),
-                  ),
+                  border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.12), width: 0.5)),
                 ),
                 child: ListenableBuilder(
                   listenable: context.read<SmsSessionStore>(),
@@ -354,10 +698,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 child: Container(
                                   width: 36,
                                   height: 4,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white24,
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
+                                  decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
                                 ),
                               ),
                               const SizedBox(height: 16),
@@ -401,8 +742,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   const SizedBox(width: 8),
                                   _statChip('${session.pendingCount} pending', Colors.white38),
                                   const Spacer(),
-                                  Text('SIM: ${session.simLabel}',
-                                      style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 12)),
+                                  Text('SIM: ${session.simLabel}', style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 12)),
                                 ],
                               ),
                               if (session.retryPass > 0)
@@ -435,19 +775,15 @@ class _HomeScreenState extends State<HomeScreen> {
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Text(r.name,
-                                              style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500)),
-                                          Text(r.phone,
-                                              style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13)),
+                                          Text(r.name, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500)),
+                                          Text(r.phone, style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13)),
                                           if (r.error != null)
-                                            Text(r.error!,
-                                                style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                                            Text(r.error!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
                                         ],
                                       ),
                                     ),
                                     if (r.retryCount > 0)
-                                      Text('↺ ${r.retryCount}',
-                                          style: const TextStyle(color: Colors.orangeAccent, fontSize: 12)),
+                                      Text('↺ ${r.retryCount}', style: const TextStyle(color: Colors.orangeAccent, fontSize: 12)),
                                   ],
                                 ),
                               );
@@ -478,10 +814,7 @@ class _HomeScreenState extends State<HomeScreen> {
           style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 14),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
-          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel', style: TextStyle(color: Colors.white54))),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
@@ -504,10 +837,7 @@ class _HomeScreenState extends State<HomeScreen> {
         return SizedBox(
           width: 20,
           height: 20,
-          child: CircularProgressIndicator(
-            strokeWidth: 2,
-            color: Colors.white.withValues(alpha: 0.5),
-          ),
+          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white.withValues(alpha: 0.5)),
         );
     }
   }
@@ -515,12 +845,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _statChip(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(label,
-          style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
+      child: Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
     );
   }
 
@@ -541,159 +867,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(label,
-          style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final indicatorColor = _permissionsGranted ? Colors.green : Colors.orangeAccent;
-    final indicatorLabel = _permissionsGranted ? 'Online' : 'No Permission';
-
-    return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light,
-      child: Scaffold(
-        backgroundColor: const Color(0xFF1C1C1E),
-        extendBody: true,
-        appBar: PreferredSize(
-          preferredSize: const Size.fromHeight(kToolbarHeight),
-          child: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            automaticallyImplyLeading: false,
-            title: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Text('SyncCal',
-                        style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white)),
-                    Text('powered by calbrs',
-                        style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w400,
-                            color: Colors.white.withValues(alpha: 0.5),
-                            letterSpacing: 0.5)),
-                  ],
-                ),
-                Row(
-                  children: [
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 400),
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: indicatorColor.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Row(
-                        children: [
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 400),
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(color: indicatorColor, shape: BoxShape.circle),
-                          ),
-                          const SizedBox(width: 6),
-                          Text(indicatorLabel,
-                              style: TextStyle(
-                                color: indicatorColor,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                              )),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(Icons.menu_rounded, color: Colors.white, size: 26),
-                      onPressed: () => _showMenuDrawer(context),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-            shape: Border(
-              bottom: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
-            ),
-          ),
-        ),
-        body: Consumer<SmsSessionStore>(
-          builder: (context, store, _) {
-            if (!store.isLoaded) {
-              return const Center(
-                child: CircularProgressIndicator(color: Colors.white30, strokeWidth: 2),
-              );
-            }
-
-            return Stack(
-              children: [
-                store.sessions.isEmpty
-                    ? Center(
-                        child: Text(
-                          'No messages sent yet.\nTap Send Message to start.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: Colors.white.withValues(alpha: 0.35), fontSize: 15),
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-                        itemCount: store.sessions.length,
-                        itemBuilder: (context, index) {
-                          final session = store.sessions[index];
-                          return _SessionCard(
-                            session: session,
-                            onTap: () => _showSessionDetail(context, session),
-                            onDelete: () => _confirmDeleteSession(context, session),
-                          );
-                        },
-                      ),
-                Positioned(
-                  left: 20,
-                  right: 20,
-                  bottom: 10,
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(30),
-                    child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: const Color(0x26FFFFFF),
-                          borderRadius: BorderRadius.circular(30),
-                          border: Border.all(color: Colors.white.withValues(alpha: 0.15), width: 0.5),
-                        ),
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            shadowColor: Colors.transparent,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                          ),
-                          onPressed: _simLoaded && _permissionsGranted ? () => _showMessageDrawer(context) : null,
-                          child: Text(
-                            _permissionsGranted ? 'Send Message' : 'Permissions Required',
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: 0.3),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(20)),
+      child: Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
     );
   }
 }
@@ -703,11 +878,7 @@ class _SessionCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onDelete;
 
-  const _SessionCard({
-    required this.session,
-    required this.onTap,
-    required this.onDelete,
-  });
+  const _SessionCard({required this.session, required this.onTap, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -722,13 +893,7 @@ class _SessionCard extends StatelessWidget {
       confirmDismiss: (_) async {
         if (!session.isComplete) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Cannot delete a session that is still running.'),
-              backgroundColor: const Color(0xFF3A3A3E),
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-            ),
+            const SnackBar(content: Text('Cannot delete a session that is still running.')),
           );
           return false;
         }
@@ -816,8 +981,7 @@ class _SessionCard extends StatelessWidget {
                     _chip('${session.pendingCount} pending', Colors.white38),
                   ],
                   const Spacer(),
-                  Text(session.simLabel,
-                      style: TextStyle(color: Colors.white.withValues(alpha: 0.35), fontSize: 11.5)),
+                  Text(session.simLabel, style: TextStyle(color: Colors.white.withValues(alpha: 0.35), fontSize: 11.5)),
                 ],
               ),
               if (session.retryPass > 0)
@@ -847,24 +1011,16 @@ class _SessionCard extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-      decoration: BoxDecoration(
-        color: progressColor.withValues(alpha: 0.14),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(label,
-          style: TextStyle(color: progressColor, fontSize: 11.5, fontWeight: FontWeight.w600)),
+      decoration: BoxDecoration(color: progressColor.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(20)),
+      child: Text(label, style: TextStyle(color: progressColor, fontSize: 11.5, fontWeight: FontWeight.w600)),
     );
   }
 
   Widget _chip(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(label,
-          style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w600)),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
+      child: Text(label, style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w600)),
     );
   }
 }
