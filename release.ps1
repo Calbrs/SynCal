@@ -1,3 +1,11 @@
+$commitMessage = Read-Host "Enter commit message"
+
+git add .
+
+if ((git diff --cached --name-only).Length -gt 0) {
+    git commit -m "$commitMessage"
+}
+
 flutter build apk --release
 
 $version = (Get-Content pubspec.yaml |
