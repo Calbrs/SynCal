@@ -55,6 +55,12 @@ class ApiClient {
 
   final _box = Hive.box<dynamic>(ApiConfig.syncalBoxKey);
 
+  // Local storage key for the session token issued by `authenticate`.
+  // This isn't part of ApiConfig (that file wasn't shared when this was
+  // written) — feel free to move it there alongside the other keys, just
+  // make sure the string doesn't collide with an existing one.
+  static const _sessionTokenKey = 'syncal_session_token';
+
   // ── Persistence helpers ───────────────────────────────────────
 
   LinkedUser? get linkedUser {
@@ -70,6 +76,15 @@ class ApiClient {
   Future<void> _clearLinkedUser() async {
     await _box.delete(ApiConfig.linkedUserKey);
     await _box.delete(ApiConfig.lastSyncKey);
+    await _box.delete(_sessionTokenKey);
+  }
+
+  /// The signed session token returned by the server on successful login.
+  /// This — not `syncal_id`/`cr_id` — is what now proves identity to `sync`.
+  String? get _sessionToken => _box.get(_sessionTokenKey) as String?;
+
+  Future<void> _saveSessionToken(String token) async {
+    await _box.put(_sessionTokenKey, token);
   }
 
   DateTime? get lastSync {
@@ -133,7 +148,14 @@ class ApiClient {
     if (response.statusCode == 200) {
       final userData = body['user'] as Map<String, dynamic>;
       final user = LinkedUser.fromJson(userData);
+      final token = body['token'] as String?;
+      if (token == null || token.isEmpty) {
+        // Server should always return a token on 200 now — treat a missing
+        // one as a hard failure rather than silently linking without auth.
+        throw ApiException('Server did not return a session token');
+      }
       await _saveLinkedUser(user);
+      await _saveSessionToken(token);
       return user;
     } else if (response.statusCode == 401) {
       throw ApiException(body['message'] as String? ?? 'Invalid credentials');
@@ -161,7 +183,12 @@ class ApiClient {
     if (response.statusCode == 200) {
       final userData = body['user'] as Map<String, dynamic>;
       final user = LinkedUser.fromJson(userData);
+      final token = body['token'] as String?;
+      if (token == null || token.isEmpty) {
+        throw ApiException('Server did not return a session token');
+      }
       await _saveLinkedUser(user);
+      await _saveSessionToken(token);
       return user;
     } else if (response.statusCode == 401) {
       throw ApiException(body['message'] as String? ?? 'Invalid credentials');
@@ -181,7 +208,10 @@ class ApiClient {
   /// Also updates [lastSync] on success.
   Future<List<SyncedContact>> syncContacts() async {
     final user = linkedUser;
-    if (user == null) throw ApiException('No linked account');
+    final token = _sessionToken;
+    if (user == null || token == null) {
+      throw ApiException('No linked account');
+    }
 
     final response = await http
         .post(
@@ -189,8 +219,7 @@ class ApiClient {
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({
             'action': 'sync',
-            'syncal_id': user.syncalId,
-            'cr_id': user.id,
+            'token': token,
           }),
         )
         .timeout(ApiConfig.receiveTimeout);
@@ -200,8 +229,12 @@ class ApiClient {
       await _saveLastSync();
       final list = body['students'] as List;
       return list.map((e) => SyncedContact.fromJson(e as Map<String, dynamic>)).toList();
-    } else if (response.statusCode == 403) {
-      throw ApiException('Unauthorized - Please relink your account');
+    } else if (response.statusCode == 401) {
+      // Token missing, expired, invalid, or the account no longer exists.
+      // Drop the stale link entirely so periodic auto-sync stops retrying
+      // with a dead token and the UI correctly prompts to relink.
+      await _clearLinkedUser();
+      throw ApiException(body['message'] as String? ?? 'Unauthorized - Please relink your account');
     }
     throw ApiException(body['message'] as String? ?? 'Sync failed');
   }

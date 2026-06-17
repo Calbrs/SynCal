@@ -111,7 +111,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showReportProblemModal(BuildContext context) {
-    // unchanged from original
     final controller = TextEditingController();
     bool isSubmitting = false;
 
@@ -140,7 +139,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Center(
-                          child: Container(width: 36, height: 4, margin: const EdgeInsets.only(bottom: 24), decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2))),
+                          child: Container(
+                            width: 36,
+                            height: 4,
+                            margin: const EdgeInsets.only(bottom: 24),
+                            decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                          ),
                         ),
                         const Text('Report a Problem', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                         const SizedBox(height: 6),
@@ -166,7 +170,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           children: [
                             Expanded(
                               child: TextButton(
-                                style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 15), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)), backgroundColor: Colors.white.withValues(alpha: 0.1)),
+                                style: TextButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(vertical: 15),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                                  backgroundColor: Colors.white.withValues(alpha: 0.1),
+                                ),
                                 onPressed: () => Navigator.pop(ctx),
                                 child: const Text('Cancel', style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w600)),
                               ),
@@ -174,15 +182,57 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: Colors.black, padding: const EdgeInsets.symmetric(vertical: 15), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30))),
-                                onPressed: isSubmitting ? null : () async {
-                                  if (controller.text.trim().isEmpty) return;
-                                  setModalState(() => isSubmitting = true);
-                                  try {
-                                    await http.post(Uri.parse('https://your-api-domain.com/api/report_problem.php'), headers: {'Content-Type': 'application/json'}, body: jsonEncode({'synccal_id': _syncCalId, 'description': controller.text.trim()}));
-                                  } catch (_) {}
-                                  if (mounted) Navigator.pop(ctx);
-                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.white,
+                                  foregroundColor: Colors.black,
+                                  padding: const EdgeInsets.symmetric(vertical: 15),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                                ),
+                                onPressed: isSubmitting
+                                    ? null
+                                    : () async {
+                                        final desc = controller.text.trim();
+                                        if (desc.isEmpty) return;
+
+                                        setModalState(() => isSubmitting = true);
+
+                                        try {
+                                          // Fixed API call - using your existing ApiClient pattern
+                                          final response = await http.post(
+                                            Uri.parse('https://your-api-domain.com/api/connect'), // ← Change this to your real domain
+                                            headers: {'Content-Type': 'application/json'},
+                                            body: jsonEncode({
+                                              'action': 'report_problem',
+                                              'syncal_id': _syncCalId,
+                                              'description': desc,
+                                            }),
+                                          );
+
+                                          if (response.statusCode == 200) {
+                                            if (mounted) {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text('Problem reported successfully. Thank you!'),
+                                                  backgroundColor: Colors.green,
+                                                ),
+                                              );
+                                            }
+                                          } else {
+                                            throw Exception('Server error: ${response.statusCode}');
+                                          }
+                                        } catch (e) {
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text('Failed to report problem: $e'),
+                                                backgroundColor: Colors.redAccent,
+                                              ),
+                                            );
+                                          }
+                                        } finally {
+                                          if (mounted) Navigator.pop(ctx);
+                                        }
+                                      },
                                 child: isSubmitting
                                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54))
                                     : const Text('Submit', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),

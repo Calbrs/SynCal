@@ -1,4 +1,15 @@
 // lib/screens/create_event_screen.dart
+//
+// NOTE: No logic in this file needed to change for the sync/auth fix.
+// This screen only calls high-level methods on ApiClient
+// (lookupSyncalId / authenticateWithUsername / syncContacts / unlink) — it
+// never builds the HTTP request body itself, so it was never part of the
+// vulnerable code path. The matching client-side change belongs in
+// lib/core/api_client.dart: after authenticateWithUsername() succeeds, it
+// must store the new `token` the server returns, and syncContacts() must
+// send `{action: 'sync', token}` instead of `{action: 'sync', syncal_id,
+// cr_id}`. Share that file and I'll patch it precisely.
+
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
