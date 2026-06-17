@@ -1,4 +1,4 @@
-# synccal
+# SynCal
 
 A new Flutter project.
 

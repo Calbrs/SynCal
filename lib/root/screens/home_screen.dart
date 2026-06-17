@@ -85,7 +85,7 @@ class _HomeScreenState extends State<HomeScreen> {
   double _downloadProgress = 0.0;
   String? _updateError;
 
-  static const _channel = MethodChannel('com.example.synccal/sms');
+  static const _channel = MethodChannel('com.example.SynCal/sms');
 
   @override
   void initState() {
@@ -276,7 +276,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('SyncCal', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    const Text('SynCal', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                     Text('powered by calbrs', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w400, color: zinc500, letterSpacing: 0.5)),
                   ],
                 ),

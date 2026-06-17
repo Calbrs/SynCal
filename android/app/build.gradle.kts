@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.synccal"
+    namespace = "com.example.SynCal"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -19,7 +19,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.example.synccal"
+        applicationId = "com.example.SynCal"
         minSdk = flutter.minSdkVersion                    // Increased for better SMS + Foreground Service support
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode

@@ -1,4 +1,4 @@
-package com.example.synccal
+package com.example.SynCal
 
 import android.app.Activity
 import android.content.BroadcastReceiver
@@ -11,8 +11,8 @@ import androidx.core.content.ContextCompat
 import io.flutter.plugin.common.MethodChannel
 
 object SmsStatusTracker {
-    const val ACTION_SMS_SENT = "com.example.synccal.SMS_SENT"
-    const val ACTION_SMS_DELIVERED = "com.example.synccal.SMS_DELIVERED"
+    const val ACTION_SMS_SENT = "com.example.SynCal.SMS_SENT"
+    const val ACTION_SMS_DELIVERED = "com.example.SynCal.SMS_DELIVERED"
     private const val TAG = "SmsStatusTracker"
 
     private var channel: MethodChannel? = null

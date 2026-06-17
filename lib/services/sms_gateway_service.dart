@@ -63,7 +63,7 @@ class SmsResult {
 }
 
 class SmsGatewayService {
-  static const _channel = MethodChannel('com.example.synccal/sms');
+  static const _channel = MethodChannel('com.example.SynCal/sms');
 
   static Stream<SmsResult> get statusUpdates => _statusController.stream;
   static final _statusController = StreamController<SmsResult>.broadcast();

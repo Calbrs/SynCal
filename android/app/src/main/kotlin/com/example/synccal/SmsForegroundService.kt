@@ -1,4 +1,4 @@
-package com.example.synccal
+package com.example.SynCal
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -59,7 +59,7 @@ class SmsForegroundService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("SyncCal SMS")
+            .setContentTitle("SynCal SMS")
             .setContentText("Sending messages in background...")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(pendingIntent)

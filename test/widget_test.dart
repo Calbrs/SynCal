@@ -7,14 +7,14 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:synccal/main.dart';
+import 'package:SynCal/main.dart';
 
 void main() {
-  testWidgets('SyncCal home route smoke test', (WidgetTester tester) async {
-    await tester.pumpWidget(const SyncCalApp());
+  testWidgets('SynCal home route smoke test', (WidgetTester tester) async {
+    await tester.pumpWidget(const SynCalApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('Welcome to SyncCal'), findsOneWidget);
+    expect(find.text('Welcome to SynCal'), findsOneWidget);
     expect(find.text('Go to details'), findsOneWidget);
   });
 }

@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:hive_flutter/hive_flutter.dart'; // ✅ added missing import
+import 'package:hive_flutter/hive_flutter.dart';
 
 import '/core/api_client.dart';
 import '../../services/version_check_service.dart';
@@ -27,7 +27,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   static const Color zinc400 = Color(0xFFA1A1AA);
 
   String _appVersion = '1.0.0';
-  String _syncCalId = 'Not linked';
+  String _SynCalId = 'Not linked';
   String _username = '';
   bool _checkingUpdate = false;
   String? _latestVersion;
@@ -44,7 +44,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       final packageInfo = await PackageInfo.fromPlatform();
       if (!mounted) return;
       setState(() {
-        _appVersion = '${packageInfo.version} (${packageInfo.buildNumber})';
+        _appVersion = packageInfo.version;
       });
     } catch (_) {}
   }
@@ -52,7 +52,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _loadUserInfo() {
     final linkedUser = ApiClient.instance.linkedUser;
     setState(() {
-      _syncCalId = linkedUser?.syncalId ?? 'Not linked';
+      _SynCalId = linkedUser?.syncalId ?? 'Not linked';
       _username = linkedUser?.username ?? '';
     });
   }
@@ -89,7 +89,69 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // ─── Profile Drawer ──────────────────────────────────────────
+  // ─── Logout with Confirmation ────────────────────────────────
+  Future<void> _logout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: zinc900,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Logout & Unlink',
+          style: TextStyle(color: Colors.white),
+        ),
+        content: const Text(
+          'Are you sure you want to logout and unlink your account?\n\nThis action cannot be undone.',
+          style: TextStyle(color: zinc400),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel', style: TextStyle(color: zinc400)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: TextButton.styleFrom(foregroundColor: Colors.redAccent),
+            child: const Text('Yes, Logout'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await ApiClient.instance.unlink();
+
+      // Clear app data for a clean start
+      final boxes = ['settings', 'user', 'cache']; // Add other box names if needed
+      for (var boxName in boxes) {
+        if (Hive.isBoxOpen(boxName)) {
+          await Hive.box(boxName).clear();
+        } else {
+          await Hive.deleteBoxFromDisk(boxName);
+        }
+      }
+
+      if (!mounted) return;
+
+      Navigator.pop(context); // Close profile drawer
+      if (mounted) {
+        context.go(AppRoutes.auth);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Logout failed: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
+  // ─── Profile Drawer (Normal Bottom Sheet Style) ──────────────
 
   void _showProfileDrawer() {
     final user = ApiClient.instance.linkedUser;
@@ -106,7 +168,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         return FractionallySizedBox(
-          heightFactor: 0.95,
+          heightFactor: 0.72, // Good default height where content is fully visible
           child: ClipRRect(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             child: BackdropFilter(
@@ -133,9 +195,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                     const SizedBox(height: 20),
+
+                    // Scrollable content area
                     Expanded(
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
@@ -170,7 +234,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                 letterSpacing: 0.5,
                               ),
                             ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 32),
 
                             _profileInfoTile(
                               icon: Icons.fingerprint_rounded,
@@ -183,54 +247,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               label: 'Username',
                               value: _username,
                             ),
-                            const SizedBox(height: 12),
-                            _profileInfoTile(
-                              icon: Icons.class_rounded,
-                              label: 'Class',
-                              value: 'Class CR',
-                            ),
-                            const SizedBox(height: 12),
-                            _profileInfoTile(
-                              icon: Icons.school_rounded,
-                              label: 'Role',
-                              value: 'Class Representative',
-                            ),
-                            const SizedBox(height: 32),
-
-                            SizedBox(
-                              width: double.infinity,
-                              child: ElevatedButton(
-                                onPressed: () async {
-                                  await ApiClient.instance.unlink();
-                                  if (!mounted) return;
-                                  final settingsBox = Hive.box('settings');
-                                  await settingsBox.put('isLoggedIn', false);
-                                  Navigator.pop(ctx);
-                                  if (mounted) {
-                                    context.go(AppRoutes.auth);
-                                  }
-                                },
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.redAccent,
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(vertical: 16),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(30),
-                                  ),
-                                  elevation: 0,
-                                ),
-                                child: const Text(
-                                  'Logout / Unlink',
-                                  style: TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.bold,
-                                    letterSpacing: 0.5,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 24),
+                            const SizedBox(height: 80), // Space before pinned button
                           ],
+                        ),
+                      ),
+                    ),
+
+                    // Logout button pinned at the very bottom (5px from edge)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 5),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: _logout,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.redAccent,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(30),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: const Text(
+                            'Logout & Unlink',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -468,29 +514,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
             backgroundColor: Colors.transparent,
             elevation: 0,
             automaticallyImplyLeading: false,
-            title: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  'Settings',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
+            centerTitle: true,
+            title: const Text(
+              'Settings',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
             ),
             leading: GestureDetector(
               onTap: () => context.pop(),
               child: Container(
                 margin: const EdgeInsets.only(left: 16),
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(12),
+                padding: const EdgeInsets.all(10),
+                child: const Icon(
+                  Icons.arrow_back_ios_new_rounded,
+                  color: Colors.white,
+                  size: 20,
                 ),
-                child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
               ),
             ),
             shape: Border(
@@ -514,8 +556,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   clipBehavior: Clip.antiAlias,
                   child: _settingsTile(
                     icon: Icons.fingerprint_rounded,
-                    title: 'SyncCal ID',
-                    subtitle: _syncCalId,
+                    title: 'SynCal ID',
+                    subtitle: _SynCalId,
                     onTap: _showProfileDrawer,
                     trailing: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
                   ),
@@ -573,7 +615,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               left: 0,
               right: 0,
               child: Text(
-                'SyncCal v$_appVersion',
+                'SynCal v$_appVersion',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.2),

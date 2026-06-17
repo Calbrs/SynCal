@@ -10,7 +10,7 @@ import 'services/sms_gateway_service.dart';
 import 'services/sms_session_store.dart';
 import 'core/api_config.dart';
 
-const String appTitle = 'SyncCal';
+const String appTitle = 'SynCal';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -40,13 +40,13 @@ void main() async {
   runApp(
     ChangeNotifierProvider(
       create: (_) => SmsSessionStore(),
-      child: const SyncCalApp(),
+      child: const SynCalApp(),
     ),
   );
 }
 
-class SyncCalApp extends StatelessWidget {
-  const SyncCalApp({super.key});
+class SynCalApp extends StatelessWidget {
+  const SynCalApp({super.key});
 
   @override
   Widget build(BuildContext context) {

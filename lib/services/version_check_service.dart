@@ -39,7 +39,7 @@ class VersionCheckService {
         headers: {
           'Accept': 'application/vnd.github+json',
           'Cache-Control': 'no-cache',
-          'User-Agent': 'SyncCal-App',
+          'User-Agent': 'SynCal-App',
         },
       ).timeout(const Duration(seconds: 15));
 
@@ -185,7 +185,7 @@ class VersionCheckService {
         headers: {
           'Accept': 'application/vnd.github+json',
           'Cache-Control': 'no-cache',
-          'User-Agent': 'SyncCal-App',
+          'User-Agent': 'SynCal-App',
         },
       ).timeout(const Duration(seconds: 15));
 

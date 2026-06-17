@@ -1,4 +1,4 @@
-package com.example.synccal
+package com.example.SynCal
 
 import android.Manifest
 import android.app.Activity
@@ -24,7 +24,7 @@ import java.util.UUID
 class MainActivity : FlutterActivity() {
 
     companion object {
-        private const val SMS_CHANNEL = "com.example.synccal/sms"
+        private const val SMS_CHANNEL = "com.example.SynCal/sms"
         private const val TAG = "SmsGateway"
         private const val REQUEST_SMS_PERMISSIONS = 101
         private const val ENGINE_ID = "sync_cal_engine"

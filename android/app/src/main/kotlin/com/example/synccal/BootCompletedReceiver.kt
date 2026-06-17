@@ -1,4 +1,4 @@
-package com.example.synccal
+package com.example.SynCal
 
 import android.content.BroadcastReceiver
 import android.content.Context

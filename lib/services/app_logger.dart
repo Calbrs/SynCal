@@ -15,7 +15,7 @@ class AppLogger {
     try {
       final dir  = await getApplicationDocumentsDirectory();
       final date = _dateStamp(DateTime.now());
-      _logFile   = File('${dir.path}/synccal_$date.log');
+      _logFile   = File('${dir.path}/SynCal_$date.log');
       _sink      = _logFile!.openWrite(mode: FileMode.append);
       _initialised = true;
       info('AppLogger', 'Log file opened: ${_logFile!.path}');

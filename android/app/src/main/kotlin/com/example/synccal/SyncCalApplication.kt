@@ -1,11 +1,11 @@
-package com.example.synccal
+package com.example.SynCal
 
 import android.app.Application
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.FlutterEngineCache
 import io.flutter.embedding.engine.dart.DartExecutor
 
-class SyncCalApplication : Application() {
+class SynCalApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()

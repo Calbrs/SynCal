@@ -5,10 +5,10 @@
 // 'flutter create' template.
 
 // The application's name. By default this is also the title of the Flutter window.
-PRODUCT_NAME = synccal
+PRODUCT_NAME = SynCal
 
 // The application's bundle identifier
-PRODUCT_BUNDLE_IDENTIFIER = com.example.synccal
+PRODUCT_BUNDLE_IDENTIFIER = com.example.SynCal
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 com.example. All rights reserved.

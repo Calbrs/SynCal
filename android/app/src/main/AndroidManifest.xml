@@ -19,8 +19,8 @@
         android:required="true" />
 
     <application
-        android:label="SyncCal"
-        android:name=".SyncCalApplication"   
+        android:label="SynCal"
+        android:name=".SynCalApplication"   
         android:icon="@mipmap/ic_launcher"
         android:requestLegacyExternalStorage="true">
 
