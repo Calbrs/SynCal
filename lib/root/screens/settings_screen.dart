@@ -1,14 +1,14 @@
 // lib/screens/settings_screen.dart
-import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:http/http.dart' as http;
+import 'package:hive_flutter/hive_flutter.dart'; // ✅ added missing import
 
 import '/core/api_client.dart';
 import '../../services/version_check_service.dart';
+import '../app_routes.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -18,18 +18,25 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  // ─── Zinc color palette ──────────────────────────────────────
+  static const Color zinc950 = Color(0xFF09090B);
+  static const Color zinc900 = Color(0xFF18181B);
+  static const Color zinc800 = Color(0xFF27272A);
+  static const Color zinc700 = Color(0xFF3F3F46);
+  static const Color zinc500 = Color(0xFF71717A);
+  static const Color zinc400 = Color(0xFFA1A1AA);
+
   String _appVersion = '1.0.0';
   String _syncCalId = 'Not linked';
+  String _username = '';
   bool _checkingUpdate = false;
-  bool _downloading = false;
-  double _downloadProgress = 0.0;
   String? _latestVersion;
 
   @override
   void initState() {
     super.initState();
     _loadAppVersion();
-    _loadSyncCalId();
+    _loadUserInfo();
   }
 
   Future<void> _loadAppVersion() async {
@@ -42,11 +49,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (_) {}
   }
 
-  void _loadSyncCalId() {
+  void _loadUserInfo() {
     final linkedUser = ApiClient.instance.linkedUser;
     setState(() {
-      final id = linkedUser?.syncalId ?? linkedUser?.id;
-      _syncCalId = (id is String ? id : id?.toString()) ?? 'Not linked';
+      _syncCalId = linkedUser?.syncalId ?? 'Not linked';
+      _username = linkedUser?.username ?? '';
     });
   }
 
@@ -58,10 +65,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       if (result != null && result.hasUpdate) {
         setState(() => _latestVersion = result.latestVersion);
-        _startDownload();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('New version v${result.latestVersion} available on Home Screen'),
+              backgroundColor: Colors.blueAccent,
+            ),
+          );
+        }
       } else if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('You are up to date'), backgroundColor: Colors.green),
+          const SnackBar(content: Text('You are up to date ✓'), backgroundColor: Colors.green),
         );
       }
     } catch (e) {
@@ -75,40 +89,208 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _startDownload() async {
-    if (_latestVersion == null) return;
+  // ─── Profile Drawer ──────────────────────────────────────────
 
-    setState(() {
-      _downloading = true;
-      _downloadProgress = 0.0;
-    });
-
-    try {
-      final path = await VersionCheckService.downloadApk(
-        version: _latestVersion!,
-        onProgress: (p) {
-          if (mounted) setState(() => _downloadProgress = p);
-        },
+  void _showProfileDrawer() {
+    final user = ApiClient.instance.linkedUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No account linked')),
       );
-
-      if (mounted) {
-        setState(() {
-          _downloading = false;
-          _downloadProgress = 1.0;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Update downloaded. Go to home screen to install.'), backgroundColor: Colors.green),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _downloading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Download failed: $e'), backgroundColor: Colors.redAccent),
-        );
-      }
+      return;
     }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return FractionallySizedBox(
+          heightFactor: 0.95,
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: zinc900,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                  border: Border(
+                    top: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
+                  ),
+                ),
+                child: Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: zinc700,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            CircleAvatar(
+                              radius: 48,
+                              backgroundColor: Colors.white.withValues(alpha: 0.08),
+                              child: Text(
+                                _username.isNotEmpty ? _username[0].toUpperCase() : '?',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 36,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            Text(
+                              _username.isNotEmpty ? _username : 'User',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 22,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              user.syncalId,
+                              style: TextStyle(
+                                color: zinc400,
+                                fontSize: 14,
+                                fontFamily: 'monospace',
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+
+                            _profileInfoTile(
+                              icon: Icons.fingerprint_rounded,
+                              label: 'SynCal ID',
+                              value: user.syncalId,
+                            ),
+                            const SizedBox(height: 12),
+                            _profileInfoTile(
+                              icon: Icons.person_rounded,
+                              label: 'Username',
+                              value: _username,
+                            ),
+                            const SizedBox(height: 12),
+                            _profileInfoTile(
+                              icon: Icons.class_rounded,
+                              label: 'Class',
+                              value: 'Class CR',
+                            ),
+                            const SizedBox(height: 12),
+                            _profileInfoTile(
+                              icon: Icons.school_rounded,
+                              label: 'Role',
+                              value: 'Class Representative',
+                            ),
+                            const SizedBox(height: 32),
+
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton(
+                                onPressed: () async {
+                                  await ApiClient.instance.unlink();
+                                  if (!mounted) return;
+                                  final settingsBox = Hive.box('settings');
+                                  await settingsBox.put('isLoggedIn', false);
+                                  Navigator.pop(ctx);
+                                  if (mounted) {
+                                    context.go(AppRoutes.auth);
+                                  }
+                                },
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.redAccent,
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(30),
+                                  ),
+                                  elevation: 0,
+                                ),
+                                child: const Text(
+                                  'Logout / Unlink',
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.bold,
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 24),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
   }
+
+  Widget _profileInfoTile({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, color: zinc400, size: 18),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(color: zinc400, fontSize: 12, fontWeight: FontWeight.w500),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  value,
+                  style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Report Problem Modal ──────────────────────────────────
 
   void _showReportProblemModal(BuildContext context) {
     final controller = TextEditingController();
@@ -130,9 +312,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Container(
                     padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF1E1E22),
+                      color: zinc900,
                       borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                      border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 0.5)),
+                      border: Border(
+                        top: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
+                      ),
                     ),
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
@@ -142,41 +326,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: Container(
                             width: 36,
                             height: 4,
-                            margin: const EdgeInsets.only(bottom: 24),
-                            decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                            margin: const EdgeInsets.only(bottom: 16),
+                            decoration: BoxDecoration(color: zinc700, borderRadius: BorderRadius.circular(2)),
                           ),
                         ),
-                        const Text('Report a Problem', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
-                        const SizedBox(height: 6),
-                        Text('Describe the issue you\'re experiencing.', style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13)),
+                        const Text(
+                          'Report a Problem',
+                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Describe the issue you\'re experiencing.',
+                          style: TextStyle(color: zinc400, fontSize: 13),
+                        ),
                         const SizedBox(height: 20),
                         TextField(
                           controller: controller,
                           maxLines: 5,
-                          style: const TextStyle(color: Colors.white),
+                          style: const TextStyle(color: Colors.white, fontSize: 14),
                           cursorColor: Colors.white,
                           decoration: InputDecoration(
                             hintText: 'Describe the issue...',
-                            hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.4)),
+                            hintStyle: TextStyle(color: zinc500, fontSize: 13),
                             filled: true,
-                            fillColor: Colors.white.withValues(alpha: 0.06),
+                            fillColor: zinc800,
                             contentPadding: const EdgeInsets.all(16),
-                            enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1))),
-                            focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.3))),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: BorderSide(color: zinc700, width: 0.5),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(14),
+                              borderSide: BorderSide(color: zinc400, width: 0.5),
+                            ),
                           ),
                         ),
-                        const SizedBox(height: 28),
+                        const SizedBox(height: 24),
                         Row(
                           children: [
                             Expanded(
                               child: TextButton(
                                 style: TextButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(vertical: 15),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                                  backgroundColor: Colors.white.withValues(alpha: 0.1),
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(30),
+                                  ),
+                                  backgroundColor: zinc800,
                                 ),
                                 onPressed: () => Navigator.pop(ctx),
-                                child: const Text('Cancel', style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w600)),
+                                child: const Text(
+                                  'Cancel',
+                                  style: TextStyle(color: zinc400, fontSize: 15, fontWeight: FontWeight.w600),
+                                ),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -184,9 +385,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               child: ElevatedButton(
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.white,
-                                  foregroundColor: Colors.black,
-                                  padding: const EdgeInsets.symmetric(vertical: 15),
-                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                                  foregroundColor: zinc950,
+                                  padding: const EdgeInsets.symmetric(vertical: 14),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(30),
+                                  ),
+                                  elevation: 0,
                                 ),
                                 onPressed: isSubmitting
                                     ? null
@@ -197,34 +401,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         setModalState(() => isSubmitting = true);
 
                                         try {
-                                          // Fixed API call - using your existing ApiClient pattern
-                                          final response = await http.post(
-                                            Uri.parse('https://your-api-domain.com/api/connect'), // ← Change this to your real domain
-                                            headers: {'Content-Type': 'application/json'},
-                                            body: jsonEncode({
-                                              'action': 'report_problem',
-                                              'syncal_id': _syncCalId,
-                                              'description': desc,
-                                            }),
-                                          );
-
-                                          if (response.statusCode == 200) {
-                                            if (mounted) {
-                                              ScaffoldMessenger.of(context).showSnackBar(
-                                                const SnackBar(
-                                                  content: Text('Problem reported successfully. Thank you!'),
-                                                  backgroundColor: Colors.green,
+                                          final success = await ApiClient.instance.reportProblem(desc);
+                                          if (mounted) {
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  success
+                                                      ? 'Problem reported successfully. Thank you!'
+                                                      : 'Report saved offline. Will sync when online.',
                                                 ),
-                                              );
-                                            }
-                                          } else {
-                                            throw Exception('Server error: ${response.statusCode}');
+                                                backgroundColor: success ? Colors.green : Colors.orangeAccent,
+                                              ),
+                                            );
                                           }
                                         } catch (e) {
                                           if (mounted) {
                                             ScaffoldMessenger.of(context).showSnackBar(
                                               SnackBar(
-                                                content: Text('Failed to report problem: $e'),
+                                                content: Text('Failed to report: $e'),
                                                 backgroundColor: Colors.redAccent,
                                               ),
                                             );
@@ -234,8 +428,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         }
                                       },
                                 child: isSubmitting
-                                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54))
-                                    : const Text('Submit', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                                    ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54),
+                                      )
+                                    : const Text(
+                                        'Submit',
+                                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                                      ),
                               ),
                             ),
                           ],
@@ -252,12 +453,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  // ─── Build ─────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
-        backgroundColor: const Color(0xFF1C1C1E),
+        backgroundColor: zinc950,
         extendBody: true,
         appBar: PreferredSize(
           preferredSize: const Size.fromHeight(kToolbarHeight),
@@ -265,21 +468,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
             backgroundColor: Colors.transparent,
             elevation: 0,
             automaticallyImplyLeading: false,
-            title: Row(
+            title: const Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                GestureDetector(
-                  onTap: () => context.pop(),
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12)),
-                    child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
+                Text(
+                  'Settings',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
                   ),
                 ),
-                const SizedBox(width: 14),
-                const Text('Settings', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
               ],
             ),
-            shape: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5)),
+            leading: GestureDetector(
+              onTap: () => context.pop(),
+              child: Container(
+                margin: const EdgeInsets.only(left: 16),
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: 0.06),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
+              ),
+            ),
+            shape: Border(
+              bottom: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
+            ),
           ),
         ),
         body: Stack(
@@ -290,19 +506,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _sectionLabel('Account'),
                 const SizedBox(height: 8),
                 Container(
-                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white.withValues(alpha: 0.09), width: 0.5)),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.03),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
+                  ),
                   clipBehavior: Clip.antiAlias,
                   child: _settingsTile(
                     icon: Icons.fingerprint_rounded,
                     title: 'SyncCal ID',
                     subtitle: _syncCalId,
-                    trailing: GestureDetector(
-                      onTap: () {
-                        Clipboard.setData(ClipboardData(text: _syncCalId));
-                        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('ID copied to clipboard'), backgroundColor: Color(0xFF3A3A3E)));
-                      },
-                      child: Icon(Icons.copy_rounded, color: Colors.white.withValues(alpha: 0.4), size: 18),
-                    ),
+                    onTap: _showProfileDrawer,
+                    trailing: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
                   ),
                 ),
 
@@ -311,15 +526,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _sectionLabel('Updates'),
                 const SizedBox(height: 8),
                 Container(
-                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white.withValues(alpha: 0.09), width: 0.5)),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.03),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
+                  ),
                   clipBehavior: Clip.antiAlias,
                   child: _settingsTile(
                     icon: Icons.system_update_rounded,
                     title: 'Check for Updates',
                     subtitle: _latestVersion != null ? 'v$_latestVersion available' : null,
-                    onTap: _checkingUpdate || _downloading ? null : _checkForUpdates,
-                    trailing: _checkingUpdate || _downloading
-                        ? SizedBox(width: 20, height: 20, child: CircularProgressIndicator(value: _downloading ? _downloadProgress : null, strokeWidth: 2))
+                    onTap: _checkingUpdate ? null : _checkForUpdates,
+                    trailing: _checkingUpdate
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white38),
+                          )
                         : const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
                   ),
                 ),
@@ -329,13 +552,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _sectionLabel('Support'),
                 const SizedBox(height: 8),
                 Container(
-                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.05), borderRadius: BorderRadius.circular(16), border: Border.all(color: Colors.white.withValues(alpha: 0.09), width: 0.5)),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.03),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
+                  ),
                   clipBehavior: Clip.antiAlias,
                   child: _settingsTile(
                     icon: Icons.bug_report_rounded,
                     title: 'Report a Problem',
                     onTap: () => _showReportProblemModal(context),
-                    trailing: Icon(Icons.arrow_forward_ios_rounded, color: Colors.white.withValues(alpha: 0.3), size: 14),
+                    trailing: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
                   ),
                 ),
               ],
@@ -345,7 +572,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
               bottom: 30,
               left: 0,
               right: 0,
-              child: Text('SyncCal v$_appVersion', textAlign: TextAlign.center, style: TextStyle(color: Colors.white.withValues(alpha: 0.3), fontSize: 13, letterSpacing: 0.3)),
+              child: Text(
+                'SyncCal v$_appVersion',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  fontSize: 13,
+                  letterSpacing: 0.3,
+                ),
+              ),
             ),
           ],
         ),
@@ -356,7 +591,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _sectionLabel(String label) {
     return Padding(
       padding: const EdgeInsets.only(left: 4),
-      child: Text(label.toUpperCase(), style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 11.5, fontWeight: FontWeight.w600, letterSpacing: 1.0)),
+      child: Text(
+        label.toUpperCase(),
+        style: TextStyle(
+          color: zinc500,
+          fontSize: 11.5,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 1.0,
+        ),
+      ),
     );
   }
 
@@ -378,18 +621,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Container(
               width: 36,
               height: 36,
-              decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
-              child: Icon(icon, color: Colors.white70, size: 18),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: zinc400, size: 18),
             ),
             const SizedBox(width: 14),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500)),
+                  Text(
+                    title,
+                    style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500),
+                  ),
                   if (subtitle != null) ...[
                     const SizedBox(height: 2),
-                    Text(subtitle, style: TextStyle(color: Colors.white.withValues(alpha: 0.45), fontSize: 12.5), maxLines: 1, overflow: TextOverflow.ellipsis),
+                    Text(
+                      subtitle,
+                      style: TextStyle(color: zinc400, fontSize: 12.5),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ],
                 ],
               ),

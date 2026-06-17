@@ -1,9 +1,7 @@
-// lib/services/sms_session_store.dart
-// Updated version with persistence, delete, clear, and isLoaded support
-
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:hive/hive.dart';
+import 'package:collection/collection.dart';
 
 import '../root/models/contact.dart';
 import '../root/models/sms_session.dart';
@@ -14,7 +12,6 @@ const String _tag = 'SmsSessionStore';
 const String _sessionsBoxName = 'sms_sessions';
 
 class SmsSessionStore extends ChangeNotifier {
-  // Singleton
   static final SmsSessionStore _instance = SmsSessionStore._();
   factory SmsSessionStore() => _instance;
 
@@ -22,30 +19,25 @@ class SmsSessionStore extends ChangeNotifier {
   bool get isLoaded => _isLoaded;
 
   final List<SmsSession> sessions = [];
+  bool _isProcessing = false;
 
   SmsSessionStore._() {
-    // Listen for delivery confirmations from the native layer
     SmsGatewayService.statusUpdates.listen(_onNativeStatusUpdate);
     _initHive();
   }
 
   Future<void> _initHive() async {
     try {
-      // Ensure Hive is ready (already initialized elsewhere)
       final box = await Hive.openBox<SmsSession>(_sessionsBoxName);
-      
-      // Load existing sessions (newest first)
       sessions.clear();
-      sessions.addAll(box.values.toList()
-        ..sort((a, b) => b.startedAt.compareTo(a.startedAt)));
-      
+      sessions.addAll(box.values.toList()..sort((a, b) => b.startedAt.compareTo(a.startedAt)));
       _isLoaded = true;
       notifyListeners();
-      
       AppLogger.info(_tag, 'Loaded ${sessions.length} sessions from Hive');
+      _resumeSessions();
     } catch (e) {
       AppLogger.error(_tag, 'Failed to load sessions: $e');
-      _isLoaded = true; // Still mark as loaded to unblock UI
+      _isLoaded = true;
       notifyListeners();
     }
   }
@@ -60,13 +52,18 @@ class SmsSessionStore extends ChangeNotifier {
     }
   }
 
-  // ── Create & start a new session ──────────────────────────────────────────
-  Future<void> startSession({
-    required String message,
-    required int simSlot,
-    required String simLabel,
-  }) async {
-    // Build recipient list from every contact in Hive (all their phone numbers)
+  Future<void> _resumeSessions() async {
+    if (_isProcessing) return;
+    final running = sessions.firstWhereOrNull(
+      (s) => s.state != SmsSessionState.done,
+    );
+    if (running != null) {
+      AppLogger.info(_tag, 'Resuming session ${running.id}');
+      await _runPass(running);
+    }
+  }
+
+  Future<void> startSession({required String message, required int simSlot, required String simLabel}) async {
     final box = Hive.box<Contact>('contacts');
     final recipients = <SmsRecipient>[];
 
@@ -82,11 +79,11 @@ class SmsSessionStore extends ChangeNotifier {
     }
 
     final session = SmsSession(
-      id:         DateTime.now().millisecondsSinceEpoch.toString(),
-      message:    message,
-      startedAt:  DateTime.now(),
-      simSlot:    simSlot,
-      simLabel:   simLabel,
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      message: message,
+      startedAt: DateTime.now(),
+      simSlot: simSlot,
+      simLabel: simLabel,
       recipients: recipients,
     );
 
@@ -94,184 +91,192 @@ class SmsSessionStore extends ChangeNotifier {
     await _saveSessions();
     notifyListeners();
 
-    AppLogger.info(_tag,
-        'Session ${session.id} started — '
-        '${recipients.length} recipients, SIM: $simLabel');
+    AppLogger.info(_tag, 'Session ${session.id} started — ${recipients.length} recipients, SIM: $simLabel');
 
+    await SmsGatewayService.startForegroundService();
     await _runPass(session);
   }
 
-  // ── Execute one send pass (initial or retry) ──────────────────────────────
+  // Loop-based retry logic – no recursion
   Future<void> _runPass(SmsSession session) async {
-    final targets = session.retryPass == 0
-        ? session.recipients                  // first pass: everyone
-        : session.failedRecipients;           // retry: only failed ones
+    if (_isProcessing) return;
+    _isProcessing = true;
 
-    AppLogger.info(_tag,
-        'Session ${session.id} — pass ${session.retryPass}, '
-        'sending to ${targets.length} recipients');
+    try {
+      while (true) {
+        // Determine targets for this pass
+        List<SmsRecipient> targets;
 
-    for (final recipient in targets) {
-      recipient.status   = SmsRecipientStatus.pending;
-      recipient.error    = null;
-      notifyListeners();
-      await _saveSessions(); // Save progress
+        if (session.retryPass == 0) {
+          // First pass: send to all pending recipients
+          targets = session.recipients.where((r) => r.status == SmsRecipientStatus.pending).toList();
+        } else {
+          // Retry passes: failed or sentNotDelivered with retries left
+          targets = session.recipients.where((r) {
+            if (r.status == SmsRecipientStatus.failed && r.retryCount < SmsSession.maxSendRetries) return true;
+            if (r.status == SmsRecipientStatus.sentNotDelivered &&
+                (r.deliveryRetryCount ?? 0) < SmsSession.maxDeliveryRetries) return true;
+            return false;
+          }).toList();
+        }
 
-      try {
-        final result = await SmsGatewayService.sendSms(
-          to:      recipient.phone,
-          message: session.message,
-          simSlot: session.simSlot,
+        if (targets.isEmpty) {
+          // No more recipients to process – session done
+          _closeSession(session);
+          await SmsGatewayService.stopForegroundService();
+          break;
+        }
+
+        AppLogger.info(_tag, 'Session ${session.id} — pass ${session.retryPass}, sending to ${targets.length} recipients');
+
+        // For retry passes, increment retry counters before sending
+        for (final r in targets) {
+          if (r.status == SmsRecipientStatus.sentNotDelivered) {
+            r.deliveryRetryCount = (r.deliveryRetryCount ?? 0) + 1;
+          }
+          // For failed, retryCount already incremented; we don't increment again here
+          r.status = SmsRecipientStatus.pending;
+          r.error = null;
+          r.msgId = null;
+          notifyListeners();
+          await _saveSessions();
+        }
+
+        // Send SMS for each target
+        for (final recipient in targets) {
+          try {
+            final result = await SmsGatewayService.sendSms(
+              to: recipient.phone,
+              message: session.message,
+              simSlot: session.simSlot,
+            );
+            recipient.msgId = result.msgId;
+            AppLogger.info(_tag, 'Queued → ${recipient.name} (${recipient.phone}) msgId:${result.msgId}');
+          } catch (e) {
+            recipient.status = SmsRecipientStatus.failed;
+            recipient.error = e.toString();
+            recipient.retryCount++;
+            AppLogger.error(_tag, 'Send error → ${recipient.name} (${recipient.phone}): $e');
+          }
+          await _saveSessions();
+          notifyListeners();
+          await Future.delayed(const Duration(milliseconds: 1000));
+        }
+
+        // Wait for delivery status updates
+        await _waitForPendingResults(session, timeout: const Duration(seconds: 30));
+
+        // Check if we need another retry pass
+        final anyFailed = session.recipients.any(
+          (r) => r.status == SmsRecipientStatus.failed && r.retryCount < SmsSession.maxSendRetries,
         );
-        recipient.msgId = result.msgId;
+        final anyNotDelivered = session.recipients.any(
+          (r) => r.status == SmsRecipientStatus.sentNotDelivered &&
+              (r.deliveryRetryCount ?? 0) < SmsSession.maxDeliveryRetries,
+        );
 
-        AppLogger.info(_tag,
-            'Queued → ${recipient.name} (${recipient.phone}) '
-            'msgId:${result.msgId}');
-      } catch (e) {
-        recipient.status = SmsRecipientStatus.failed;
-        recipient.error  = e.toString();
-        recipient.retryCount++;
-        AppLogger.error(_tag,
-            'Send error → ${recipient.name} (${recipient.phone}): $e');
-        notifyListeners();
+        if (!anyFailed && !anyNotDelivered) {
+          // All recipients are done or out of retries
+          _closeSession(session);
+          await SmsGatewayService.stopForegroundService();
+          break;
+        }
+
+        // Need another retry pass
+        session.retryPass++;
+        session.state = SmsSessionState.retrying;
         await _saveSessions();
+        notifyListeners();
+
+        AppLogger.info(_tag, 'Session ${session.id} — waiting 8s before retry pass ${session.retryPass}');
+        await Future.delayed(const Duration(seconds: 8));
+        // Continue loop for next pass
       }
-
-      // Small gap between sends to avoid overwhelming the SIM
-      await Future.delayed(const Duration(milliseconds: 300));
-    }
-
-    // Wait for native sent-broadcasts to resolve (up to 10 s)
-    await _waitForPendingResults(session, timeout: const Duration(seconds: 10));
-
-    AppLogger.info(_tag,
-        'Session ${session.id} pass ${session.retryPass} done — '
-        'sent:${session.sentCount} failed:${session.failedCount}');
-
-    // ── Retry logic ──────────────────────────────────────────────────────────
-    if (session.failedCount > 0 &&
-        session.retryPass < SmsSession.maxRetries) {
-      session.retryPass++;
-      session.state = SmsSessionState.retrying;
-      await _saveSessions();
-      notifyListeners();
-
-      AppLogger.info(_tag,
-          'Session ${session.id} — waiting 3 s before retry '
-          'pass ${session.retryPass}');
-
-      await Future.delayed(const Duration(seconds: 3));
-
-      await _runPass(session);
-    } else {
-      _closeSession(session);
+    } finally {
+      _isProcessing = false;
     }
   }
 
-  // ── Poll until no recipients are left pending (or timeout) ───────────────
-  Future<void> _waitForPendingResults(
-    SmsSession session, {
-    required Duration timeout,
-  }) async {
+  Future<void> _waitForPendingResults(SmsSession session, {required Duration timeout}) async {
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
-      final pending = session.recipients
-          .where((r) => r.msgId != null && r.status == SmsRecipientStatus.pending)
-          .toList();
+      final pending = session.recipients.where((r) => r.msgId != null && r.status == SmsRecipientStatus.pending).toList();
       if (pending.isEmpty) break;
 
-      // Poll each pending message
       for (final r in pending) {
         try {
           final status = await SmsGatewayService.getSmsStatus(r.msgId!);
           if (status.sent == true) {
-            r.status = SmsRecipientStatus.sent;
-            AppLogger.info(_tag, 'Sent confirmed → ${r.name} (${r.phone})');
+            if (status.delivered == true) {
+              r.status = SmsRecipientStatus.sent;
+            } else {
+              r.status = SmsRecipientStatus.sentNotDelivered;
+            }
           } else if (status.sent == false) {
             r.status = SmsRecipientStatus.failed;
-            r.error  = status.sentError ?? 'Send failed';
+            r.error = status.sentError ?? 'Send failed';
             r.retryCount++;
-            AppLogger.warn(_tag,
-                'Send failed → ${r.name} (${r.phone}): ${r.error}');
           }
         } catch (_) {}
       }
       await _saveSessions();
       notifyListeners();
-      await Future.delayed(const Duration(milliseconds: 800));
+      await Future.delayed(const Duration(milliseconds: 1500));
     }
 
-    // Any still-pending after timeout → mark failed
+    // Timeout: mark remaining pending as failed
     for (final r in session.recipients) {
       if (r.status == SmsRecipientStatus.pending && r.msgId != null) {
         r.status = SmsRecipientStatus.failed;
-        r.error  = 'Timeout waiting for confirmation';
+        r.error = 'Timeout waiting for confirmation';
         r.retryCount++;
-        AppLogger.warn(_tag, 'Timeout → ${r.name} (${r.phone})');
       }
     }
     await _saveSessions();
     notifyListeners();
   }
 
-  // ── Handle delivery receipts pushed from native layer ─────────────────────
   void _onNativeStatusUpdate(SmsResult result) {
-    bool updated = false;
     for (final session in sessions) {
       for (final r in session.recipients) {
         if (r.msgId == result.msgId) {
           if (result.delivered == true) {
-            AppLogger.info(_tag,
-                'Delivery receipt → ${r.name} (${r.phone}) msgId:${r.msgId}');
+            r.status = SmsRecipientStatus.sent;
+            AppLogger.info(_tag, 'Delivery receipt → ${r.name} (${r.phone})');
+          } else if (result.delivered == false) {
+            r.status = SmsRecipientStatus.sentNotDelivered;
           }
-          updated = true;
-          break;
+          _saveSessions();
+          notifyListeners();
+          return;
         }
       }
-      if (updated) break;
-    }
-    if (updated) {
-      _saveSessions();
-      notifyListeners();
     }
   }
 
-  // ── Finalise session ──────────────────────────────────────────────────────
   void _closeSession(SmsSession session) {
-    session.state      = SmsSessionState.done;
+    session.state = SmsSessionState.done;
     session.finishedAt = DateTime.now();
     _saveSessions();
     notifyListeners();
-
-    AppLogger.info(_tag,
-        'Session ${session.id} complete — '
-        'sent:${session.sentCount}/${session.totalCount} '
-        'failed:${session.failedCount} '
-        'retries:${session.retryPass}');
+    AppLogger.info(
+      _tag,
+      'Session ${session.id} complete — sent:${session.sentCount} failed:${session.failedCount} notDelivered:${session.sentButNotDeliveredCount}',
+    );
   }
 
-  // ── Delete single session ─────────────────────────────────────────────────
   Future<void> deleteSession(String id) async {
-    final index = sessions.indexWhere((s) => s.id == id);
-    if (index == -1) return;
-
-    sessions.removeAt(index);
+    sessions.removeWhere((s) => s.id == id);
     await _saveSessions();
     notifyListeners();
-    AppLogger.info(_tag, 'Session $id deleted');
   }
 
-  // ── Clear all sessions ────────────────────────────────────────────────────
   Future<void> clearAllSessions() async {
     sessions.clear();
     try {
       final box = Hive.box<SmsSession>(_sessionsBoxName);
       await box.clear();
-    } catch (e) {
-      AppLogger.error(_tag, 'Failed to clear sessions box: $e');
-    }
+    } catch (_) {}
     notifyListeners();
-    AppLogger.info(_tag, 'All sessions cleared');
   }
 }

@@ -23,13 +23,14 @@ class SmsRecipientAdapter extends TypeAdapter<SmsRecipient> {
       error: fields[3] as String?,
       msgId: fields[4] as String?,
       retryCount: fields[5] as int,
+      deliveryRetryCount: fields[6] as int?,
     );
   }
 
   @override
   void write(BinaryWriter writer, SmsRecipient obj) {
     writer
-      ..writeByte(6)
+      ..writeByte(7)
       ..writeByte(0)
       ..write(obj.name)
       ..writeByte(1)
@@ -41,7 +42,9 @@ class SmsRecipientAdapter extends TypeAdapter<SmsRecipient> {
       ..writeByte(4)
       ..write(obj.msgId)
       ..writeByte(5)
-      ..write(obj.retryCount);
+      ..write(obj.retryCount)
+      ..writeByte(6)
+      ..write(obj.deliveryRetryCount);
   }
 
   @override
@@ -126,6 +129,8 @@ class SmsRecipientStatusAdapter extends TypeAdapter<SmsRecipientStatus> {
         return SmsRecipientStatus.sent;
       case 2:
         return SmsRecipientStatus.failed;
+      case 3:
+        return SmsRecipientStatus.sentNotDelivered;
       default:
         return SmsRecipientStatus.pending;
     }
@@ -142,6 +147,9 @@ class SmsRecipientStatusAdapter extends TypeAdapter<SmsRecipientStatus> {
         break;
       case SmsRecipientStatus.failed:
         writer.writeByte(2);
+        break;
+      case SmsRecipientStatus.sentNotDelivered:
+        writer.writeByte(3);
         break;
     }
   }

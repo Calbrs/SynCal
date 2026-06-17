@@ -7,11 +7,13 @@ import 'screens/create_event_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/splash_screen.dart';
+import 'screens/authentication.dart';
 
 class AppRoutes {
   static const String splash = '/';
   static const String home = '/home';
   static const String settings = '/settings';
+  static const String auth = '/auth';
   static const String createEvent = '/create-event';
 
   static Page<dynamic> _buildSmoothTransitionPage({
@@ -57,6 +59,14 @@ class AppRoutes {
         pageBuilder: (context, state) => _buildSmoothTransitionPage(
           key: state.pageKey,
           child: const SplashScreen(),
+        ),
+      ),
+      GoRoute(
+        path: auth,
+        name: 'auth',
+        pageBuilder: (context, state) => _buildSmoothTransitionPage(
+          key: state.pageKey,
+          child: const SynCalAuthPage(),
         ),
       ),
       GoRoute(

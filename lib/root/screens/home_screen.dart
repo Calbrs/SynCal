@@ -1,15 +1,60 @@
-// lib/root/screens/home_screen.dart
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
+import '../models/contact.dart';
 import '../models/sms_session.dart';
 import '../../services/sms_gateway_service.dart';
 import '../../services/sms_session_store.dart';
 import '../../services/version_check_service.dart';
+import '/core/api_client.dart';
+import '/core/api_config.dart';
+
+class ShimmerLoading extends StatefulWidget {
+  final Widget child;
+  final bool isLoading;
+  const ShimmerLoading({super.key, required this.child, this.isLoading = true});
+
+  @override
+  State<ShimmerLoading> createState() => _ShimmerLoadingState();
+}
+
+class _ShimmerLoadingState extends State<ShimmerLoading> with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _animation;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))..repeat();
+    _animation = Tween<double>(begin: 0.0, end: 1.0).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return widget.isLoading
+        ? AnimatedBuilder(
+            animation: _animation,
+            builder: (context, child) {
+              return Opacity(
+                opacity: 0.2 + 0.6 * _animation.value,
+                child: widget.child,
+              );
+            },
+          )
+        : widget.child;
+  }
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -19,6 +64,15 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  static const Color zinc950 = Color(0xFF09090B);
+  static const Color zinc900 = Color(0xFF18181B);
+  static const Color zinc800 = Color(0xFF27272A);
+  static const Color zinc700 = Color(0xFF3F3F46);
+  static const Color zinc600 = Color(0xFF52525B);
+  static const Color zinc500 = Color(0xFF71717A);
+  static const Color zinc400 = Color(0xFFA1A1AA);
+  static const Color zinc300 = Color(0xFFD4D4D8);
+
   List<SimCard> _simCards = [];
   SimCard? _selectedSim;
   bool _simLoaded = false;
@@ -43,7 +97,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _initSms() async {
     final granted = await SmsGatewayService.requestPermissions();
     if (!mounted) return;
-
     if (!granted) {
       setState(() {
         _simLoaded = true;
@@ -51,7 +104,6 @@ class _HomeScreenState extends State<HomeScreen> {
       });
       return;
     }
-
     final sims = await SmsGatewayService.getSimCards();
     if (mounted) {
       setState(() {
@@ -61,6 +113,11 @@ class _HomeScreenState extends State<HomeScreen> {
         _permissionsGranted = true;
       });
     }
+  }
+
+  bool _hasContactsWithNumbers() {
+    final box = Hive.box<Contact>('contacts');
+    return box.values.any((c) => c.phones.isNotEmpty);
   }
 
   Future<void> _checkForUpdate() async {
@@ -79,23 +136,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _startDownload() async {
     if (_latestVersion == null) return;
-
     setState(() {
       _isDownloading = true;
       _downloadProgress = 0.0;
       _updateError = null;
     });
-
     try {
       final apkPath = await VersionCheckService.downloadApk(
         version: _latestVersion!,
         onProgress: (progress) {
-          if (mounted) {
-            setState(() => _downloadProgress = progress);
-          }
+          if (mounted) setState(() => _downloadProgress = progress);
         },
       );
-
       if (mounted) {
         setState(() {
           _localApkPath = apkPath;
@@ -116,15 +168,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _triggerUpdate() async {
     if (_localApkPath != null) {
       try {
-        await _channel.invokeMethod('installApk', {'filePath': _localApkPath});
+        await _channel.invokeMethod('installApk', {
+          'filePath': _localApkPath,
+          'useSelfIntent': true,
+        });
       } catch (e) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Install failed: $e'),
-              backgroundColor: Colors.orangeAccent,
-            ),
-          );
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Install failed: $e')));
         }
       }
     } else if (!_isDownloading) {
@@ -139,7 +189,6 @@ class _HomeScreenState extends State<HomeScreen> {
     return AnimatedSlide(
       offset: _showUpdateBanner ? Offset.zero : const Offset(0, 1),
       duration: const Duration(milliseconds: 350),
-      curve: Curves.easeOutCubic,
       child: AnimatedOpacity(
         opacity: _showUpdateBanner ? 1.0 : 0.0,
         duration: const Duration(milliseconds: 300),
@@ -152,9 +201,7 @@ class _HomeScreenState extends State<HomeScreen> {
               decoration: BoxDecoration(
                 color: const Color(0xFFFFB800).withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                    color: const Color(0xFFFFB800).withValues(alpha: 0.3),
-                    width: 0.5),
+                border: Border.all(color: const Color(0xFFFFB800).withValues(alpha: 0.3), width: 0.5),
               ),
               child: Column(
                 children: [
@@ -162,101 +209,40 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Container(
                         padding: const EdgeInsets.all(7),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFB800).withValues(alpha: 0.18),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.system_update_rounded,
-                            color: Color(0xFFFFB800), size: 18),
+                        decoration: BoxDecoration(color: const Color(0xFFFFB800).withValues(alpha: 0.18), borderRadius: BorderRadius.circular(10)),
+                        child: const Icon(Icons.system_update_rounded, color: Color(0xFFFFB800), size: 18),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Text(
-                              'Update available',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            if (_latestVersion != null)
-                              Text(
-                                'v$_latestVersion',
-                                style: TextStyle(
-                                  color: Colors.white.withValues(alpha: 0.55),
-                                  fontSize: 12,
-                                ),
-                              ),
+                            const Text('Update available', style: TextStyle(color: Colors.white, fontSize: 13.5, fontWeight: FontWeight.w600)),
+                            if (_latestVersion != null) Text('v$_latestVersion', style: TextStyle(color: Colors.white.withValues(alpha: 0.55), fontSize: 12)),
                           ],
                         ),
                       ),
-                      if (showProgress)
-                        SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: CircularProgressIndicator(
-                            value: _downloadProgress,
-                            strokeWidth: 2.5,
-                            color: Colors.white,
-                          ),
-                        )
-                      else
-                        GestureDetector(
-                          onTap: _triggerUpdate,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 7),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFB800),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              isReady ? 'Install' : 'Download',
-                              style: const TextStyle(
-                                color: Colors.black,
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
+                      GestureDetector(
+                        onTap: _triggerUpdate,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                          decoration: BoxDecoration(color: const Color(0xFFFFB800), borderRadius: BorderRadius.circular(20)),
+                          child: Text(isReady ? 'Install' : 'Download', style: const TextStyle(color: Colors.black, fontSize: 12.5, fontWeight: FontWeight.bold)),
                         ),
+                      ),
                       const SizedBox(width: 8),
                       GestureDetector(
                         onTap: () => setState(() => _showUpdateBanner = false),
-                        child: Icon(Icons.close_rounded,
-                            color: Colors.white.withValues(alpha: 0.35), size: 18),
+                        child: Icon(Icons.close_rounded, color: Colors.white.withValues(alpha: 0.35), size: 18),
                       ),
                     ],
                   ),
                   if (showProgress) ...[
                     const SizedBox(height: 8),
-                    LinearProgressIndicator(
-                      value: _downloadProgress,
-                      minHeight: 4,
-                      backgroundColor: Colors.white.withValues(alpha: 0.1),
-                      valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFFB800)),
-                    ),
+                    LinearProgressIndicator(value: _downloadProgress, minHeight: 4, backgroundColor: Colors.white.withValues(alpha: 0.1), valueColor: const AlwaysStoppedAnimation<Color>(Color(0xFFFFB800))),
                     const SizedBox(height: 4),
-                    Text(
-                      '${(_downloadProgress * 100).toStringAsFixed(0)}% downloaded',
-                      style: TextStyle(
-                        color: Colors.white.withValues(alpha: 0.7),
-                        fontSize: 11.5,
-                      ),
-                    ),
+                    Text('${(_downloadProgress * 100).toStringAsFixed(0)}% downloaded', style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 11.5)),
                   ],
-                  if (_updateError != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        'Download failed: ${_updateError!.substring(0, 60)}${_updateError!.length > 60 ? '...' : ''}',
-                        style: const TextStyle(color: Colors.redAccent, fontSize: 11),
-                      ),
-                    ),
                 ],
               ),
             ),
@@ -270,11 +256,12 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final indicatorColor = _permissionsGranted ? Colors.green : Colors.orangeAccent;
     final indicatorLabel = _permissionsGranted ? 'Online' : 'No Permission';
+    final hasContacts = _hasContactsWithNumbers();
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
-        backgroundColor: const Color(0xFF1C1C1E),
+        backgroundColor: zinc950,
         extendBody: true,
         appBar: PreferredSize(
           preferredSize: const Size.fromHeight(kToolbarHeight),
@@ -289,17 +276,8 @@ class _HomeScreenState extends State<HomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('SyncCal',
-                        style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white)),
-                    Text('powered by calbrs',
-                        style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w400,
-                            color: Colors.white.withValues(alpha: 0.5),
-                            letterSpacing: 0.5)),
+                    const Text('SyncCal', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text('powered by calbrs', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w400, color: zinc500, letterSpacing: 0.5)),
                   ],
                 ),
                 Row(
@@ -307,52 +285,28 @@ class _HomeScreenState extends State<HomeScreen> {
                     AnimatedContainer(
                       duration: const Duration(milliseconds: 400),
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: indicatorColor.withValues(alpha: 0.2),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
+                      decoration: BoxDecoration(color: indicatorColor.withValues(alpha: 0.2), borderRadius: BorderRadius.circular(20)),
                       child: Row(
                         children: [
-                          AnimatedContainer(
-                            duration: const Duration(milliseconds: 400),
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                                color: indicatorColor,
-                                shape: BoxShape.circle),
-                          ),
+                          AnimatedContainer(duration: const Duration(milliseconds: 400), width: 8, height: 8, decoration: BoxDecoration(color: indicatorColor, shape: BoxShape.circle)),
                           const SizedBox(width: 6),
-                          Text(indicatorLabel,
-                              style: TextStyle(
-                                color: indicatorColor,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                              )),
+                          Text(indicatorLabel, style: TextStyle(color: indicatorColor, fontSize: 13, fontWeight: FontWeight.w500)),
                         ],
                       ),
                     ),
                     const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(Icons.menu_rounded, color: Colors.white, size: 26),
-                      onPressed: () => _showMenuDrawer(context),
-                    ),
+                    IconButton(icon: const Icon(Icons.menu_rounded, color: Colors.white, size: 26), onPressed: () => _showMainDrawer(context)),
                   ],
                 ),
               ],
-            ),
-            shape: Border(
-              bottom: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
             ),
           ),
         ),
         body: Consumer<SmsSessionStore>(
           builder: (context, store, _) {
             if (!store.isLoaded) {
-              return const Center(
-                child: CircularProgressIndicator(color: Colors.white30, strokeWidth: 2),
-              );
+              return const Center(child: CircularProgressIndicator(color: Colors.white30, strokeWidth: 2));
             }
-
             return Stack(
               children: [
                 store.sessions.isEmpty
@@ -360,9 +314,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Text(
                           'No messages sent yet.\nTap Send Message to start.',
                           textAlign: TextAlign.center,
-                          style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.35),
-                              fontSize: 15),
+                          style: TextStyle(color: zinc500, fontSize: 15),
                         ),
                       )
                     : ListView.builder(
@@ -384,10 +336,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      if (_showUpdateBanner) ...[
-                        _buildUpdateBanner(),
-                        const SizedBox(height: 10),
-                      ],
+                      if (_showUpdateBanner) ...[_buildUpdateBanner(), const SizedBox(height: 10)],
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 5),
                         child: ClipRRect(
@@ -397,12 +346,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             child: Container(
                               width: double.infinity,
                               decoration: BoxDecoration(
-                                color: const Color(0x26FFFFFF),
+                                color: Colors.white.withValues(alpha: 0.06),
                                 borderRadius: BorderRadius.circular(30),
-                                border: Border.all(
-                                  color: Colors.white.withValues(alpha: 0.15),
-                                  width: 0.5,
-                                ),
+                                border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
                               ),
                               child: SizedBox(
                                 height: 44,
@@ -413,17 +359,14 @@ class _HomeScreenState extends State<HomeScreen> {
                                     padding: EdgeInsets.zero,
                                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                                   ),
-                                  onPressed: _simLoaded && _permissionsGranted
+                                  onPressed: (_simLoaded && _permissionsGranted && hasContacts)
                                       ? () => _showMessageDrawer(context)
                                       : null,
                                   child: Text(
-                                    _permissionsGranted ? 'Send Message' : 'Permissions Required',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w600,
-                                      letterSpacing: 0.3,
-                                    ),
+                                    _permissionsGranted
+                                        ? (hasContacts ? 'Send Message' : 'No Contacts')
+                                        : 'Permissions Required',
+                                    style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: 0.3),
                                   ),
                                 ),
                               ),
@@ -442,9 +385,23 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // ==================== Drawer & Modals ====================
+  Widget _statItem(String label, String value, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        Text(
+          label,
+          style: TextStyle(color: zinc500, fontSize: 11),
+        ),
+      ],
+    );
+  }
 
-  void _showMenuDrawer(BuildContext context) {
+  void _showMainDrawer(BuildContext context) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -456,9 +413,9 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Container(
             padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
             decoration: BoxDecoration(
-              color: const Color(0xFF1E1E22),
+              color: zinc900,
               borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-              border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 0.5)),
+              border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 0.5)),
             ),
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -468,33 +425,34 @@ class _HomeScreenState extends State<HomeScreen> {
                     width: 36,
                     height: 4,
                     margin: const EdgeInsets.only(bottom: 24),
-                    decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                    decoration: BoxDecoration(color: zinc700, borderRadius: BorderRadius.circular(2)),
                   ),
                 ),
-                Container(
-                  decoration: BoxDecoration(color: const Color(0xFF2C2C2E), borderRadius: BorderRadius.circular(12)),
-                  clipBehavior: Clip.antiAlias,
-                  child: Column(
-                    children: [
-                      _drawerTile(
-                        title: 'Contacts',
-                        icon: Icons.contacts_rounded,
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          context.push('/create-event');
-                        },
-                      ),
-                      Divider(height: 1, thickness: 0.5, color: Colors.white.withValues(alpha: 0.08)),
-                      _drawerTile(
-                        title: 'Settings',
-                        icon: Icons.settings_rounded,
-                        onTap: () {
-                          Navigator.pop(ctx);
-                          context.push('/settings');
-                        },
-                      ),
-                    ],
-                  ),
+                _buildTile(
+                  icon: Icons.contacts_rounded,
+                  title: 'Contacts',
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    if (mounted) context.push('/create-event');
+                  },
+                ),
+                const SizedBox(height: 4),
+                _buildTile(
+                  icon: Icons.link_rounded,
+                  title: 'Generate Link',
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    _showLinkGenerator();
+                  },
+                ),
+                const SizedBox(height: 4),
+                _buildTile(
+                  icon: Icons.settings_rounded,
+                  title: 'Settings',
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    if (mounted) context.push('/settings');
+                  },
                 ),
                 const SizedBox(height: 16),
               ],
@@ -505,26 +463,368 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _drawerTile({
-    required String title,
-    required IconData icon,
-    required VoidCallback onTap,
-  }) {
+  Widget _buildTile({required IconData icon, required String title, required VoidCallback onTap}) {
     return InkWell(
       onTap: onTap,
       splashColor: Colors.white.withValues(alpha: 0.05),
-      highlightColor: Colors.white.withValues(alpha: 0.05),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+      highlightColor: Colors.white.withValues(alpha: 0.03),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: zinc800,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        ),
         child: Row(
           children: [
-            Icon(icon, color: Colors.white70, size: 20),
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
+              child: Icon(icon, color: Colors.white70, size: 18),
+            ),
             const SizedBox(width: 14),
             Expanded(
-              child: Text(title, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w400)),
+              child: Text(
+                title,
+                style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500),
+              ),
             ),
-            const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
+            Icon(Icons.arrow_forward_ios_rounded, color: Colors.white.withValues(alpha: 0.3), size: 14),
           ],
+        ),
+      ),
+    );
+  }
+
+  void _showLinkGenerator() {
+    final user = ApiClient.instance.linkedUser;
+    if (user == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Please link your account first')),
+        );
+      }
+      return;
+    }
+
+    String linkType = 'registration_link';
+    ActiveLink? activeLink;
+    bool generating = false;
+    bool fetching = true;
+    String? deleteError;
+    bool copied = false;
+
+    Future<void> refreshLink() async {
+      try {
+        final link = await ApiClient.instance.getActiveLink();
+        if (mounted) {
+          setState(() {
+            activeLink = link;
+            fetching = false;
+          });
+        }
+      } catch (_) {
+        if (mounted) setState(() => fetching = false);
+      }
+    }
+
+    refreshLink();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 2,
+              left: 1,
+              right: 1,
+            ),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
+                  decoration: BoxDecoration(
+                    color: zinc900,
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                    border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 0.5)),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 36,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(color: zinc700, borderRadius: BorderRadius.circular(2)),
+                        ),
+                      ),
+                      const Text(
+                        'Generate Link',
+                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Create a shareable student access link',
+                        style: TextStyle(color: zinc400, fontSize: 13),
+                      ),
+                      const SizedBox(height: 20),
+                      Row(
+                        children: [
+                          _buildLinkTypeButton('Registration', 'registration_link', linkType, (v) {
+                            setModalState(() => linkType = v);
+                          }),
+                          const SizedBox(width: 8),
+                          _buildLinkTypeButton('Edit', 'edit_link', linkType, (v) {
+                            setModalState(() => linkType = v);
+                          }),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      ShimmerLoading(
+                        isLoading: generating,
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton(
+                            onPressed: generating
+                                ? null
+                                : () async {
+                                    setModalState(() => generating = true);
+                                    try {
+                                      final newLink = await ApiClient.instance.generateLink(linkType);
+                                      setModalState(() {
+                                        activeLink = newLink;
+                                        generating = false;
+                                      });
+                                    } catch (e) {
+                                      setModalState(() => generating = false);
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(ctx).showSnackBar(
+                                          SnackBar(content: Text(e.toString())),
+                                        );
+                                      }
+                                    }
+                                  },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white,
+                              foregroundColor: zinc950,
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                              elevation: 0,
+                            ),
+                            child: generating
+                                ? const SizedBox(
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54),
+                                  )
+                                : const Text(
+                                    'Generate Link',
+                                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                                  ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      if (fetching)
+                        ShimmerLoading(
+                          isLoading: true,
+                          child: Container(
+                            height: 80,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.05),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                        )
+                      else if (activeLink != null) ...[
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.04),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    activeLink!.linkType.replaceAll('_', ' '),
+                                    style: TextStyle(
+                                      color: Colors.greenAccent,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                  Text(
+                                    'Expires: ${DateFormat('dd/MM/yyyy').format(DateTime.parse(activeLink!.expiresAt))}',
+                                    style: TextStyle(color: Colors.amberAccent, fontSize: 12),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withValues(alpha: 0.3),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+                                ),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        '${ApiConfig.baseUrl}/join/${activeLink!.linkType == 'registration_link' ? 'register-student' : 'edit-student'}?token=${activeLink!.linkToken}',
+                                        style: TextStyle(
+                                          color: Colors.white.withValues(alpha: 0.8),
+                                          fontSize: 12,
+                                          fontFamily: 'monospace',
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    GestureDetector(
+                                      onTap: () async {
+                                        final url =
+                                            '${ApiConfig.baseUrl}/join/${activeLink!.linkType == 'registration_link' ? 'register-student' : 'edit-student'}?token=${activeLink!.linkToken}';
+                                        await Clipboard.setData(ClipboardData(text: url));
+                                        setModalState(() => copied = true);
+                                        Future.delayed(const Duration(seconds: 2), () {
+                                          if (mounted) setModalState(() => copied = false);
+                                        });
+                                      },
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                        decoration: BoxDecoration(
+                                          color: copied
+                                              ? Colors.greenAccent.withValues(alpha: 0.15)
+                                              : Colors.white.withValues(alpha: 0.08),
+                                          borderRadius: BorderRadius.circular(20),
+                                          border: Border.all(
+                                            color: copied
+                                                ? Colors.greenAccent.withValues(alpha: 0.3)
+                                                : Colors.white.withValues(alpha: 0.12),
+                                          ),
+                                        ),
+                                        child: Text(
+                                          copied ? 'Copied ✓' : 'Copy',
+                                          style: TextStyle(
+                                            color: copied ? Colors.greenAccent : Colors.white.withValues(alpha: 0.7),
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              if (deleteError != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Text(
+                                    deleteError!,
+                                    style: const TextStyle(color: Colors.redAccent, fontSize: 11),
+                                  ),
+                                ),
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: GestureDetector(
+                                  onTap: () async {
+                                    setModalState(() => deleteError = null);
+                                    try {
+                                      await ApiClient.instance.deleteLink(activeLink!.linkToken);
+                                      setModalState(() => activeLink = null);
+                                    } catch (e) {
+                                      setModalState(() => deleteError = e.toString());
+                                    }
+                                  },
+                                  child: const Text(
+                                    '✕ Terminate Link',
+                                    style: TextStyle(
+                                      color: Colors.redAccent,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ] else ...[
+                        Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            child: Text(
+                              'No active link. Generate one above.',
+                              style: TextStyle(color: zinc500, fontSize: 13),
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(ctx),
+                          style: TextButton.styleFrom(
+                            backgroundColor: Colors.white.withValues(alpha: 0.08),
+                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                          ),
+                          child: Text(
+                            'Close',
+                            style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildLinkTypeButton(String label, String value, String current, ValueChanged<String> onTap) {
+    final selected = value == current;
+    return Expanded(
+      child: GestureDetector(
+        onTap: () => onTap(value),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          decoration: BoxDecoration(
+            color: selected ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: selected ? Colors.white : zinc700),
+          ),
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: selected ? zinc950 : Colors.white70,
+              fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+              fontSize: 13,
+            ),
+          ),
         ),
       ),
     );
@@ -541,7 +841,11 @@ class _HomeScreenState extends State<HomeScreen> {
       builder: (ctx) {
         return StatefulBuilder(builder: (ctx, setModalState) {
           return Padding(
-            padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(ctx).viewInsets.bottom + 2,
+              left: 1,
+              right: 1,
+            ),
             child: ClipRRect(
               borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
               child: BackdropFilter(
@@ -549,9 +853,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Container(
                   padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF1E1E22),
+                    color: zinc900,
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                    border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.1), width: 0.5)),
+                    border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 0.5)),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -561,72 +865,84 @@ class _HomeScreenState extends State<HomeScreen> {
                         child: Container(
                           width: 36,
                           height: 4,
-                          margin: const EdgeInsets.only(bottom: 24),
-                          decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(color: zinc700, borderRadius: BorderRadius.circular(2)),
                         ),
                       ),
-                      if (_simCards.length > 1) ...[
-                        const Text('SIM Card', style: TextStyle(color: Colors.white70, fontSize: 14)),
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.07),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<SimCard>(
-                              value: drawerSim,
-                              dropdownColor: const Color(0xFF2A2A2E),
-                              isExpanded: true,
-                              style: const TextStyle(color: Colors.white, fontSize: 15),
-                              iconEnabledColor: Colors.white54,
-                              items: _simCards
-                                  .map((s) => DropdownMenuItem(
-                                        value: s,
-                                        child: Text('${s.displayName} — ${s.carrierName}'),
-                                      ))
-                                  .toList(),
-                              onChanged: (s) => setModalState(() => drawerSim = s),
+                      const Text(
+                        'Send Message',
+                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Compose and broadcast to your contacts',
+                        style: TextStyle(color: zinc400, fontSize: 13),
+                      ),
+                      const SizedBox(height: 20),
+                      _buildTileWithTrailing(
+                        icon: Icons.sim_card_rounded,
+                        title: 'SIM Card',
+                        subtitle: drawerSim?.displayName ?? 'Select SIM',
+                        trailing: Icon(Icons.arrow_drop_down, color: zinc400, size: 24),
+                        onTap: () {
+                          showModalBottomSheet(
+                            context: context,
+                            backgroundColor: Colors.transparent,
+                            builder: (ctx2) => Container(
+                              padding: const EdgeInsets.all(16),
+                              decoration: BoxDecoration(
+                                color: zinc900,
+                                borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                              ),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                children: _simCards.map((s) => ListTile(
+                                  title: Text('${s.displayName} — ${s.carrierName}',
+                                      style: const TextStyle(color: Colors.white)),
+                                  onTap: () {
+                                    Navigator.pop(ctx2);
+                                    setModalState(() => drawerSim = s);
+                                  },
+                                )).toList(),
+                              ),
                             ),
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                      ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 16),
                       TextField(
                         controller: msgController,
                         maxLines: 4,
-                        style: const TextStyle(color: Colors.white),
+                        style: const TextStyle(color: Colors.white, fontSize: 14),
                         cursorColor: Colors.white,
                         decoration: InputDecoration(
-                          hintText: 'Type your message here...',
-                          hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.4)),
+                          hintText: 'Type your message...',
+                          hintStyle: TextStyle(color: zinc500, fontSize: 13),
                           filled: true,
-                          fillColor: Colors.white.withValues(alpha: 0.06),
-                          contentPadding: const EdgeInsets.all(16),
+                          fillColor: zinc800,
+                          contentPadding: const EdgeInsets.only(left: 2, right: 16, top: 16, bottom: 16),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+                            borderSide: BorderSide(color: zinc700, width: 0.5),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(14),
-                            borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
+                            borderSide: BorderSide(color: zinc400, width: 0.5),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 28),
+                      const SizedBox(height: 24),
                       Row(
                         children: [
                           Expanded(
                             child: TextButton(
                               style: TextButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(vertical: 15),
+                                padding: const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                                backgroundColor: Colors.white.withValues(alpha: 0.1),
+                                backgroundColor: zinc800,
                               ),
                               onPressed: () => Navigator.pop(ctx),
-                              child: const Text('Cancel', style: TextStyle(color: Colors.white70, fontSize: 16, fontWeight: FontWeight.w600)),
+                              child: const Text('Cancel', style: TextStyle(color: zinc400, fontSize: 15, fontWeight: FontWeight.w600)),
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -634,21 +950,24 @@ class _HomeScreenState extends State<HomeScreen> {
                             child: ElevatedButton(
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.white,
-                                foregroundColor: Colors.black,
-                                padding: const EdgeInsets.symmetric(vertical: 15),
+                                foregroundColor: zinc950,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
                                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                                elevation: 0,
                               ),
                               onPressed: () {
                                 final text = msgController.text.trim();
                                 if (text.isEmpty) return;
                                 Navigator.pop(ctx);
-                                context.read<SmsSessionStore>().startSession(
-                                      message: text,
-                                      simSlot: drawerSim?.slotIndex ?? -1,
-                                      simLabel: drawerSim?.displayName ?? 'Default SIM',
-                                    );
+                                if (mounted) {
+                                  context.read<SmsSessionStore>().startSession(
+                                    message: text,
+                                    simSlot: drawerSim?.slotIndex ?? -1,
+                                    simLabel: drawerSim?.displayName ?? 'Default SIM',
+                                  );
+                                }
                               },
-                              child: const Text('Send', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                              child: const Text('Send', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
                             ),
                           ),
                         ],
@@ -664,29 +983,72 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildTileWithTrailing({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Widget trailing,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      splashColor: Colors.white.withValues(alpha: 0.05),
+      highlightColor: Colors.white.withValues(alpha: 0.03),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        decoration: BoxDecoration(
+          color: zinc800,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(10)),
+              child: Icon(icon, color: Colors.white70, size: 18),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
+                  Text(subtitle, style: TextStyle(color: zinc400, fontSize: 12)),
+                ],
+              ),
+            ),
+            trailing,
+          ],
+        ),
+      ),
+    );
+  }
+
   void _showSessionDetail(BuildContext context, SmsSession session) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (_) => DraggableScrollableSheet(
-        initialChildSize: 0.65,
-        minChildSize: 0.4,
+        initialChildSize: 0.7,
+        minChildSize: 0.5,
         maxChildSize: 0.95,
         builder: (_, scrollController) {
           return ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             child: BackdropFilter(
               filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
               child: Container(
                 decoration: BoxDecoration(
-                  color: const Color(0xFF2A2A2E),
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-                  border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.12), width: 0.5)),
+                  color: zinc900,
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                  border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 0.5)),
                 ),
                 child: ListenableBuilder(
                   listenable: context.read<SmsSessionStore>(),
-                  builder: (_, _) {
+                  builder: (_, __) {
                     return Column(
                       children: [
                         Padding(
@@ -698,7 +1060,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 child: Container(
                                   width: 36,
                                   height: 4,
-                                  decoration: BoxDecoration(color: Colors.white24, borderRadius: BorderRadius.circular(2)),
+                                  decoration: BoxDecoration(color: zinc700, borderRadius: BorderRadius.circular(2)),
                                 ),
                               ),
                               const SizedBox(height: 16),
@@ -707,7 +1069,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 children: [
                                   Text(
                                     DateFormat('MMM dd, yyyy — HH:mm').format(session.startedAt),
-                                    style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13),
+                                    style: TextStyle(color: zinc500, fontSize: 13),
                                   ),
                                   _sessionStateBadge(session),
                                 ],
@@ -725,7 +1087,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                 child: LinearProgressIndicator(
                                   value: session.progressFraction,
                                   minHeight: 6,
-                                  backgroundColor: Colors.white.withValues(alpha: 0.1),
+                                  backgroundColor: Colors.white.withValues(alpha: 0.06),
                                   valueColor: AlwaysStoppedAnimation<Color>(
                                     session.isComplete
                                         ? (session.failedCount == 0 ? Colors.greenAccent : Colors.orangeAccent)
@@ -733,28 +1095,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                 ),
                               ),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  _statChip('${session.sentCount} sent', Colors.greenAccent),
-                                  const SizedBox(width: 8),
-                                  _statChip('${session.failedCount} failed', Colors.redAccent),
-                                  const SizedBox(width: 8),
-                                  _statChip('${session.pendingCount} pending', Colors.white38),
-                                  const Spacer(),
-                                  Text('SIM: ${session.simLabel}', style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 12)),
-                                ],
-                              ),
-                              if (session.retryPass > 0)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 6),
-                                  child: Text(
-                                    'Retry pass: ${session.retryPass} / ${SmsSession.maxRetries}',
-                                    style: TextStyle(color: Colors.orangeAccent.withValues(alpha: 0.8), fontSize: 12),
-                                  ),
-                                ),
                               const SizedBox(height: 16),
-                              const Divider(color: Colors.white10, thickness: 0.5),
+                              _buildSessionStatsCard(session),
+                              const SizedBox(height: 16),
+                              const Divider(color: zinc800, thickness: 0.5),
                             ],
                           ),
                         ),
@@ -775,15 +1119,38 @@ class _HomeScreenState extends State<HomeScreen> {
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Text(r.name, style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500)),
-                                          Text(r.phone, style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13)),
+                                          Text(
+                                            r.name,
+                                            style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500),
+                                          ),
+                                          Text(
+                                            r.phone,
+                                            style: TextStyle(color: zinc500, fontSize: 13),
+                                          ),
                                           if (r.error != null)
-                                            Text(r.error!, style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
+                                            Text(
+                                              r.error!,
+                                              style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                                            ),
                                         ],
                                       ),
                                     ),
-                                    if (r.retryCount > 0)
-                                      Text('↺ ${r.retryCount}', style: const TextStyle(color: Colors.orangeAccent, fontSize: 12)),
+                                    if ((r.retryCount > 0) || ((r.deliveryRetryCount ?? 0) > 0))
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.orangeAccent.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: Text(
+                                          '↺ ${r.retryCount + (r.deliveryRetryCount ?? 0)}',
+                                          style: const TextStyle(
+                                            color: Colors.orangeAccent,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ),
                                   ],
                                 ),
                               );
@@ -802,23 +1169,92 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Widget _buildSessionStatsCard(SmsSession session) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Session Stats',
+                style: TextStyle(
+                  color: zinc400,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                'SIM: ${session.simLabel}',
+                style: TextStyle(color: zinc500, fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _statItem('Total', session.totalCount.toString(), zinc300),
+              const SizedBox(width: 20),
+              _statItem('Sent ✓', session.sentCount.toString(), Colors.greenAccent),
+              const SizedBox(width: 20),
+              _statItem('Failed ✗', session.failedCount.toString(), Colors.redAccent),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              _statItem('Pending ⌛', session.pendingCount.toString(), zinc500),
+              const SizedBox(width: 20),
+              _statItem('Not Delivered ⚠️', session.sentButNotDeliveredCount.toString(), Colors.orangeAccent),
+              const Spacer(),
+              if (session.retryPass > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.blueAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'Retry ${session.retryPass}',
+                    style: TextStyle(color: Colors.blueAccent, fontSize: 11, fontWeight: FontWeight.w500),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   void _confirmDeleteSession(BuildContext context, SmsSession session) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF2A2A2E),
+        backgroundColor: zinc900,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete log?', style: TextStyle(color: Colors.white)),
         content: Text(
           'This will permanently remove the session log from ${DateFormat('MMM dd, HH:mm').format(session.startedAt)}.',
-          style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 14),
+          style: TextStyle(color: zinc400, fontSize: 14),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel', style: TextStyle(color: Colors.white54))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: zinc400)),
+          ),
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
-              context.read<SmsSessionStore>().deleteSession(session.id);
+              if (mounted) {
+                context.read<SmsSessionStore>().deleteSession(session.id);
+              }
             },
             child: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
           ),
@@ -831,23 +1267,17 @@ class _HomeScreenState extends State<HomeScreen> {
     switch (status) {
       case SmsRecipientStatus.sent:
         return const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 20);
+      case SmsRecipientStatus.sentNotDelivered:
+        return const Icon(Icons.check_circle_outline_rounded, color: Colors.orangeAccent, size: 20);
       case SmsRecipientStatus.failed:
         return const Icon(Icons.error_rounded, color: Colors.redAccent, size: 20);
       case SmsRecipientStatus.pending:
-        return SizedBox(
+        return const SizedBox(
           width: 20,
           height: 20,
-          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white.withValues(alpha: 0.5)),
+          child: CircularProgressIndicator(strokeWidth: 2, color: zinc400),
         );
     }
-  }
-
-  Widget _statChip(String label, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
-      child: Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
-    );
   }
 
   Widget _sessionStateBadge(SmsSession session) {
@@ -892,9 +1322,11 @@ class _SessionCard extends StatelessWidget {
       direction: DismissDirection.endToStart,
       confirmDismiss: (_) async {
         if (!session.isComplete) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Cannot delete a session that is still running.')),
-          );
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Cannot delete a session that is still running.')),
+            );
+          }
           return false;
         }
         return true;
@@ -903,9 +1335,9 @@ class _SessionCard extends StatelessWidget {
       background: Container(
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
-          color: Colors.redAccent.withValues(alpha: 0.15),
+          color: Colors.redAccent.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3), width: 0.5),
+          border: Border.all(color: Colors.redAccent.withValues(alpha: 0.2), width: 0.5),
         ),
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
@@ -925,9 +1357,9 @@ class _SessionCard extends StatelessWidget {
           margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.05),
+            color: Colors.white.withValues(alpha: 0.03),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.09), width: 0.5),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -937,7 +1369,7 @@ class _SessionCard extends StatelessWidget {
                 children: [
                   Text(
                     DateFormat('MMM dd, HH:mm').format(session.startedAt),
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 12.5),
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 12.5),
                   ),
                   Row(
                     children: [
@@ -946,7 +1378,7 @@ class _SessionCard extends StatelessWidget {
                         const SizedBox(width: 8),
                         GestureDetector(
                           onTap: onDelete,
-                          child: Icon(Icons.close_rounded, color: Colors.white.withValues(alpha: 0.3), size: 18),
+                          child: Icon(Icons.close_rounded, color: Colors.white.withValues(alpha: 0.2), size: 18),
                         ),
                       ],
                     ],
@@ -966,7 +1398,7 @@ class _SessionCard extends StatelessWidget {
                 child: LinearProgressIndicator(
                   value: session.progressFraction,
                   minHeight: 4,
-                  backgroundColor: Colors.white.withValues(alpha: 0.08),
+                  backgroundColor: Colors.white.withValues(alpha: 0.06),
                   valueColor: AlwaysStoppedAnimation<Color>(progressColor),
                 ),
               ),
@@ -981,17 +1413,12 @@ class _SessionCard extends StatelessWidget {
                     _chip('${session.pendingCount} pending', Colors.white38),
                   ],
                   const Spacer(),
-                  Text(session.simLabel, style: TextStyle(color: Colors.white.withValues(alpha: 0.35), fontSize: 11.5)),
+                  Text(
+                    session.simLabel,
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.25), fontSize: 11.5),
+                  ),
                 ],
               ),
-              if (session.retryPass > 0)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                    'Retry ${session.retryPass}/${SmsSession.maxRetries}',
-                    style: const TextStyle(color: Colors.orangeAccent, fontSize: 11.5),
-                  ),
-                ),
             ],
           ),
         ),
@@ -1011,7 +1438,7 @@ class _SessionCard extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
-      decoration: BoxDecoration(color: progressColor.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(20)),
+      decoration: BoxDecoration(color: progressColor.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),
       child: Text(label, style: TextStyle(color: progressColor, fontSize: 11.5, fontWeight: FontWeight.w600)),
     );
   }
@@ -1019,7 +1446,7 @@ class _SessionCard extends StatelessWidget {
   Widget _chip(String label, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(20)),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(20)),
       child: Text(label, style: TextStyle(color: color, fontSize: 11.5, fontWeight: FontWeight.w600)),
     );
   }
