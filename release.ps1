@@ -12,8 +12,15 @@ $version = (Get-Content pubspec.yaml |
     Select-String '^version:' |
     ForEach-Object { $_.ToString().Replace('version:','').Trim() })
 
+$apkName = "SynCal.apk"
+
+Copy-Item `
+    "build/app/outputs/flutter-apk/app-release.apk" `
+    $apkName `
+    -Force
+
 git push
 
 gh release create "v$version" `
-  build/app/outputs/flutter-apk/app-release.apk `
-  --generate-notes
+    $apkName `
+    --generate-notes
