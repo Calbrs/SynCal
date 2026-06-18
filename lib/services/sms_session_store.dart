@@ -97,6 +97,49 @@ class SmsSessionStore extends ChangeNotifier {
     await _runPass(session);
   }
 
+  /// Retry failed and not-delivered recipients for a given session.
+  Future<void> retrySession(String sessionId) async {
+    final session = sessions.firstWhereOrNull((s) => s.id == sessionId);
+    if (session == null) {
+      AppLogger.warn(_tag, 'Session $sessionId not found');
+      return;
+    }
+    if (session.isComplete) {
+      AppLogger.warn(_tag, 'Session $sessionId is already complete, cannot retry.');
+      return;
+    }
+    
+    // Reset failed/not-delivered recipients to pending
+    bool hasTargets = false;
+    for (final r in session.recipients) {
+      if (r.status == SmsRecipientStatus.failed && r.retryCount < SmsSession.maxSendRetries) {
+        r.status = SmsRecipientStatus.pending;
+        r.error = null;
+        r.msgId = null;
+        hasTargets = true;
+      } else if (r.status == SmsRecipientStatus.sentNotDelivered &&
+          (r.deliveryRetryCount ?? 0) < SmsSession.maxDeliveryRetries) {
+        r.status = SmsRecipientStatus.pending;
+        r.error = null;
+        r.msgId = null;
+        hasTargets = true;
+      }
+    }
+    
+    if (!hasTargets) {
+      AppLogger.warn(_tag, 'No retriable recipients in session $sessionId');
+      return;
+    }
+    
+    await _saveSessions();
+    notifyListeners();
+    AppLogger.info(_tag, 'Retrying session $sessionId');
+    
+    // Start foreground service and run pass
+    await SmsGatewayService.startForegroundService();
+    await _runPass(session);
+  }
+
   // Loop-based retry logic – no recursion
   Future<void> _runPass(SmsSession session) async {
     if (_isProcessing) return;

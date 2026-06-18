@@ -11,8 +11,7 @@ import '../models/sms_session.dart';
 import '../../services/sms_gateway_service.dart';
 import '../../services/sms_session_store.dart';
 import '../../services/version_check_service.dart';
-import '/core/api_client.dart';
-import '/core/api_config.dart';
+import '../app_routes.dart';
 
 class ShimmerLoading extends StatefulWidget {
   final Widget child;
@@ -68,10 +67,8 @@ class _HomeScreenState extends State<HomeScreen> {
   static const Color zinc900 = Color(0xFF18181B);
   static const Color zinc800 = Color(0xFF27272A);
   static const Color zinc700 = Color(0xFF3F3F46);
-  static const Color zinc600 = Color(0xFF52525B);
   static const Color zinc500 = Color(0xFF71717A);
   static const Color zinc400 = Color(0xFFA1A1AA);
-  static const Color zinc300 = Color(0xFFD4D4D8);
 
   List<SimCard> _simCards = [];
   SimCard? _selectedSim;
@@ -83,9 +80,6 @@ class _HomeScreenState extends State<HomeScreen> {
   String? _localApkPath;
   bool _isDownloading = false;
   double _downloadProgress = 0.0;
-  String? _updateError;
-
-  static const _channel = MethodChannel('com.example.SynCal/sms');
 
   @override
   void initState() {
@@ -139,7 +133,6 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _isDownloading = true;
       _downloadProgress = 0.0;
-      _updateError = null;
     });
     try {
       final apkPath = await VersionCheckService.downloadApk(
@@ -159,26 +152,41 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted) {
         setState(() {
           _isDownloading = false;
-          _updateError = e.toString();
         });
       }
     }
   }
 
   Future<void> _triggerUpdate() async {
-    if (_localApkPath != null) {
-      try {
-        await _channel.invokeMethod('installApk', {
-          'filePath': _localApkPath,
-          'useSelfIntent': true,
-        });
-      } catch (e) {
+    if (_localApkPath == null) {
+      if (!_isDownloading) _startDownload();
+      return;
+    }
+
+    final canInstall = await SmsGatewayService.canInstallPackages();
+    if (!canInstall) {
+      final granted = await SmsGatewayService.requestInstallPermission();
+      if (!granted) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Install failed: $e')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Please enable "Install unknown apps" in Settings to update.'),
+              duration: Duration(seconds: 4),
+            ),
+          );
         }
+        return;
       }
-    } else if (!_isDownloading) {
-      _startDownload();
+    }
+
+    try {
+      await SmsGatewayService.installApk(_localApkPath!);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Install failed: $e')),
+        );
+      }
     }
   }
 
@@ -324,8 +332,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           final session = store.sessions[index];
                           return _SessionCard(
                             session: session,
-                            onTap: () => _showSessionDetail(context, session),
-                            onDelete: () => _confirmDeleteSession(context, session),
+                            onTap: () => _showSessionDetail(context, session.id),
+                            onDelete: () => _confirmDeleteSession(context, session.id),
                           );
                         },
                       ),
@@ -385,22 +393,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _statItem(String label, String value, Color color) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          value,
-          style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        Text(
-          label,
-          style: TextStyle(color: zinc500, fontSize: 11),
-        ),
-      ],
-    );
-  }
-
   void _showMainDrawer(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -433,16 +425,25 @@ class _HomeScreenState extends State<HomeScreen> {
                   title: 'Contacts',
                   onTap: () {
                     Navigator.pop(ctx);
-                    if (mounted) context.push('/create-event');
+                    if (mounted) context.push(AppRoutes.createEvent);
                   },
                 ),
                 const SizedBox(height: 4),
                 _buildTile(
                   icon: Icons.link_rounded,
-                  title: 'Generate Link',
+                  title: 'Links',
                   onTap: () {
                     Navigator.pop(ctx);
-                    _showLinkGenerator();
+                    if (mounted) context.push(AppRoutes.links);
+                  },
+                ),
+                const SizedBox(height: 4),
+                _buildTile(
+                  icon: Icons.schedule_rounded,
+                  title: 'Scheduled',
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    if (mounted) context.push(AppRoutes.scheduled);
                   },
                 ),
                 const SizedBox(height: 4),
@@ -451,7 +452,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   title: 'Settings',
                   onTap: () {
                     Navigator.pop(ctx);
-                    if (mounted) context.push('/settings');
+                    if (mounted) context.push(AppRoutes.settings);
                   },
                 ),
                 const SizedBox(height: 16),
@@ -492,339 +493,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             Icon(Icons.arrow_forward_ios_rounded, color: Colors.white.withValues(alpha: 0.3), size: 14),
           ],
-        ),
-      ),
-    );
-  }
-
-  void _showLinkGenerator() {
-    final user = ApiClient.instance.linkedUser;
-    if (user == null) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Please link your account first')),
-        );
-      }
-      return;
-    }
-
-    String linkType = 'registration_link';
-    ActiveLink? activeLink;
-    bool generating = false;
-    bool fetching = true;
-    String? deleteError;
-    bool copied = false;
-
-    Future<void> refreshLink() async {
-      try {
-        final link = await ApiClient.instance.getActiveLink();
-        if (mounted) {
-          setState(() {
-            activeLink = link;
-            fetching = false;
-          });
-        }
-      } catch (_) {
-        if (mounted) setState(() => fetching = false);
-      }
-    }
-
-    refreshLink();
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setModalState) {
-          return Padding(
-            padding: EdgeInsets.only(
-              bottom: MediaQuery.of(ctx).viewInsets.bottom + 2,
-              left: 1,
-              right: 1,
-            ),
-            child: ClipRRect(
-              borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
-                child: Container(
-                  padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
-                  decoration: BoxDecoration(
-                    color: zinc900,
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-                    border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 0.5)),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Center(
-                        child: Container(
-                          width: 36,
-                          height: 4,
-                          margin: const EdgeInsets.only(bottom: 16),
-                          decoration: BoxDecoration(color: zinc700, borderRadius: BorderRadius.circular(2)),
-                        ),
-                      ),
-                      const Text(
-                        'Generate Link',
-                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Create a shareable student access link',
-                        style: TextStyle(color: zinc400, fontSize: 13),
-                      ),
-                      const SizedBox(height: 20),
-                      Row(
-                        children: [
-                          _buildLinkTypeButton('Registration', 'registration_link', linkType, (v) {
-                            setModalState(() => linkType = v);
-                          }),
-                          const SizedBox(width: 8),
-                          _buildLinkTypeButton('Edit', 'edit_link', linkType, (v) {
-                            setModalState(() => linkType = v);
-                          }),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      ShimmerLoading(
-                        isLoading: generating,
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: generating
-                                ? null
-                                : () async {
-                                    setModalState(() => generating = true);
-                                    try {
-                                      final newLink = await ApiClient.instance.generateLink(linkType);
-                                      setModalState(() {
-                                        activeLink = newLink;
-                                        generating = false;
-                                      });
-                                    } catch (e) {
-                                      setModalState(() => generating = false);
-                                      if (mounted) {
-                                        ScaffoldMessenger.of(ctx).showSnackBar(
-                                          SnackBar(content: Text(e.toString())),
-                                        );
-                                      }
-                                    }
-                                  },
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              foregroundColor: zinc950,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                              elevation: 0,
-                            ),
-                            child: generating
-                                ? const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54),
-                                  )
-                                : const Text(
-                                    'Generate Link',
-                                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 0.5),
-                                  ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      if (fetching)
-                        ShimmerLoading(
-                          isLoading: true,
-                          child: Container(
-                            height: 80,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.05),
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                        )
-                      else if (activeLink != null) ...[
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.04),
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    activeLink!.linkType.replaceAll('_', ' '),
-                                    style: TextStyle(
-                                      color: Colors.greenAccent,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                  Text(
-                                    'Expires: ${DateFormat('dd/MM/yyyy').format(DateTime.parse(activeLink!.expiresAt))}',
-                                    style: TextStyle(color: Colors.amberAccent, fontSize: 12),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withValues(alpha: 0.3),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
-                                ),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        '${ApiConfig.baseUrl}/join/${activeLink!.linkType == 'registration_link' ? 'register-student' : 'edit-student'}?token=${activeLink!.linkToken}',
-                                        style: TextStyle(
-                                          color: Colors.white.withValues(alpha: 0.8),
-                                          fontSize: 12,
-                                          fontFamily: 'monospace',
-                                        ),
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    GestureDetector(
-                                      onTap: () async {
-                                        final url =
-                                            '${ApiConfig.baseUrl}/join/${activeLink!.linkType == 'registration_link' ? 'register-student' : 'edit-student'}?token=${activeLink!.linkToken}';
-                                        await Clipboard.setData(ClipboardData(text: url));
-                                        setModalState(() => copied = true);
-                                        Future.delayed(const Duration(seconds: 2), () {
-                                          if (mounted) setModalState(() => copied = false);
-                                        });
-                                      },
-                                      child: Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                        decoration: BoxDecoration(
-                                          color: copied
-                                              ? Colors.greenAccent.withValues(alpha: 0.15)
-                                              : Colors.white.withValues(alpha: 0.08),
-                                          borderRadius: BorderRadius.circular(20),
-                                          border: Border.all(
-                                            color: copied
-                                                ? Colors.greenAccent.withValues(alpha: 0.3)
-                                                : Colors.white.withValues(alpha: 0.12),
-                                          ),
-                                        ),
-                                        child: Text(
-                                          copied ? 'Copied ✓' : 'Copy',
-                                          style: TextStyle(
-                                            color: copied ? Colors.greenAccent : Colors.white.withValues(alpha: 0.7),
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-                              if (deleteError != null)
-                                Padding(
-                                  padding: const EdgeInsets.only(bottom: 4),
-                                  child: Text(
-                                    deleteError!,
-                                    style: const TextStyle(color: Colors.redAccent, fontSize: 11),
-                                  ),
-                                ),
-                              Align(
-                                alignment: Alignment.centerRight,
-                                child: GestureDetector(
-                                  onTap: () async {
-                                    setModalState(() => deleteError = null);
-                                    try {
-                                      await ApiClient.instance.deleteLink(activeLink!.linkToken);
-                                      setModalState(() => activeLink = null);
-                                    } catch (e) {
-                                      setModalState(() => deleteError = e.toString());
-                                    }
-                                  },
-                                  child: const Text(
-                                    '✕ Terminate Link',
-                                    style: TextStyle(
-                                      color: Colors.redAccent,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.bold,
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ] else ...[
-                        Center(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
-                            child: Text(
-                              'No active link. Generate one above.',
-                              style: TextStyle(color: zinc500, fontSize: 13),
-                            ),
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          style: TextButton.styleFrom(
-                            backgroundColor: Colors.white.withValues(alpha: 0.08),
-                            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                          ),
-                          child: Text(
-                            'Close',
-                            style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 12, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildLinkTypeButton(String label, String value, String current, ValueChanged<String> onTap) {
-    final selected = value == current;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => onTap(value),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          decoration: BoxDecoration(
-            color: selected ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(30),
-            border: Border.all(color: selected ? Colors.white : zinc700),
-          ),
-          child: Text(
-            label,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: selected ? zinc950 : Colors.white70,
-              fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-              fontSize: 13,
-            ),
-          ),
         ),
       ),
     );
@@ -1026,7 +694,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _showSessionDetail(BuildContext context, SmsSession session) {
+  void _showSessionDetail(BuildContext context, String sessionId) {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -1048,116 +716,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 child: ListenableBuilder(
                   listenable: context.read<SmsSessionStore>(),
-                  builder: (_, __) {
-                    return Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Center(
-                                child: Container(
-                                  width: 36,
-                                  height: 4,
-                                  decoration: BoxDecoration(color: zinc700, borderRadius: BorderRadius.circular(2)),
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Text(
-                                    DateFormat('MMM dd, yyyy — HH:mm').format(session.startedAt),
-                                    style: TextStyle(color: zinc500, fontSize: 13),
-                                  ),
-                                  _sessionStateBadge(session),
-                                ],
-                              ),
-                              const SizedBox(height: 12),
-                              Text(
-                                session.message,
-                                style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4),
-                                maxLines: 4,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 12),
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(6),
-                                child: LinearProgressIndicator(
-                                  value: session.progressFraction,
-                                  minHeight: 6,
-                                  backgroundColor: Colors.white.withValues(alpha: 0.06),
-                                  valueColor: AlwaysStoppedAnimation<Color>(
-                                    session.isComplete
-                                        ? (session.failedCount == 0 ? Colors.greenAccent : Colors.orangeAccent)
-                                        : Colors.blueAccent,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              _buildSessionStatsCard(session),
-                              const SizedBox(height: 16),
-                              const Divider(color: zinc800, thickness: 0.5),
-                            ],
-                          ),
-                        ),
-                        Expanded(
-                          child: ListView.builder(
-                            controller: scrollController,
-                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-                            itemCount: session.recipients.length,
-                            itemBuilder: (_, i) {
-                              final r = session.recipients[i];
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 8),
-                                child: Row(
-                                  children: [
-                                    _recipientIcon(r.status),
-                                    const SizedBox(width: 12),
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            r.name,
-                                            style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500),
-                                          ),
-                                          Text(
-                                            r.phone,
-                                            style: TextStyle(color: zinc500, fontSize: 13),
-                                          ),
-                                          if (r.error != null)
-                                            Text(
-                                              r.error!,
-                                              style: const TextStyle(color: Colors.redAccent, fontSize: 12),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                    if ((r.retryCount > 0) || ((r.deliveryRetryCount ?? 0) > 0))
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: Colors.orangeAccent.withValues(alpha: 0.15),
-                                          borderRadius: BorderRadius.circular(10),
-                                        ),
-                                        child: Text(
-                                          '↺ ${r.retryCount + (r.deliveryRetryCount ?? 0)}',
-                                          style: const TextStyle(
-                                            color: Colors.orangeAccent,
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ),
-                                  ],
-                                ),
-                              );
-                            },
-                          ),
-                        ),
-                      ],
+                  builder: (context, _) {
+                    final store = context.read<SmsSessionStore>();
+                    final session = store.sessions.firstWhere(
+                      (s) => s.id == sessionId,
+                      orElse: () => throw Exception('Session not found'),
+                    );
+                    return _SessionDetailContent(
+                      session: session,
+                      scrollController: scrollController,
+                      store: store,
                     );
                   },
                 ),
@@ -1169,71 +737,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildSessionStatsCard(SmsSession session) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Session Stats',
-                style: TextStyle(
-                  color: zinc400,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              Text(
-                'SIM: ${session.simLabel}',
-                style: TextStyle(color: zinc500, fontSize: 12),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              _statItem('Total', session.totalCount.toString(), zinc300),
-              const SizedBox(width: 20),
-              _statItem('Sent ✓', session.sentCount.toString(), Colors.greenAccent),
-              const SizedBox(width: 20),
-              _statItem('Failed ✗', session.failedCount.toString(), Colors.redAccent),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Row(
-            children: [
-              _statItem('Pending ⌛', session.pendingCount.toString(), zinc500),
-              const SizedBox(width: 20),
-              _statItem('Not Delivered ⚠️', session.sentButNotDeliveredCount.toString(), Colors.orangeAccent),
-              const Spacer(),
-              if (session.retryPass > 0)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.blueAccent.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    'Retry ${session.retryPass}',
-                    style: TextStyle(color: Colors.blueAccent, fontSize: 11, fontWeight: FontWeight.w500),
-                  ),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _confirmDeleteSession(BuildContext context, SmsSession session) {
+  void _confirmDeleteSession(BuildContext context, String sessionId) {
+    final store = context.read<SmsSessionStore>();
+    final session = store.sessions.firstWhere((s) => s.id == sessionId);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1253,7 +759,7 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () {
               Navigator.pop(ctx);
               if (mounted) {
-                context.read<SmsSessionStore>().deleteSession(session.id);
+                store.deleteSession(sessionId);
               }
             },
             child: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
@@ -1262,25 +768,249 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
+}
 
-  Widget _recipientIcon(SmsRecipientStatus status) {
-    switch (status) {
-      case SmsRecipientStatus.sent:
-        return const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 20);
-      case SmsRecipientStatus.sentNotDelivered:
-        return const Icon(Icons.check_circle_outline_rounded, color: Colors.orangeAccent, size: 20);
-      case SmsRecipientStatus.failed:
-        return const Icon(Icons.error_rounded, color: Colors.redAccent, size: 20);
-      case SmsRecipientStatus.pending:
-        return const SizedBox(
-          width: 20,
-          height: 20,
-          child: CircularProgressIndicator(strokeWidth: 2, color: zinc400),
-        );
-    }
+class _SessionDetailContent extends StatelessWidget {
+  final SmsSession session;
+  final ScrollController scrollController;
+  final SmsSessionStore store;
+
+  const _SessionDetailContent({
+    required this.session,
+    required this.scrollController,
+    required this.store,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(color: const Color(0xFF3F3F46), borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    DateFormat('MMM dd, yyyy — HH:mm').format(session.startedAt),
+                    style: TextStyle(color: const Color(0xFF71717A), fontSize: 13),
+                  ),
+                  _buildStateBadge(),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                session.message,
+                style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.4),
+                maxLines: 4,
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: LinearProgressIndicator(
+                  value: session.progressFraction,
+                  minHeight: 6,
+                  backgroundColor: Colors.white.withValues(alpha: 0.06),
+                  valueColor: AlwaysStoppedAnimation<Color>(
+                    session.isComplete
+                        ? (session.failedCount == 0 ? Colors.greenAccent : Colors.orangeAccent)
+                        : Colors.blueAccent,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              _buildStatsCard(),
+              const SizedBox(height: 16),
+              const Divider(color: Color(0xFF27272A), thickness: 0.5),
+            ],
+          ),
+        ),
+        Expanded(
+          child: ListView.builder(
+            controller: scrollController,
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+            itemCount: session.recipients.length,
+            itemBuilder: (_, i) {
+              final r = session.recipients[i];
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Row(
+                  children: [
+                    _recipientIcon(r.status),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            r.name,
+                            style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500),
+                          ),
+                          Text(
+                            r.phone,
+                            style: TextStyle(color: const Color(0xFF71717A), fontSize: 13),
+                          ),
+                          if (r.error != null)
+                            Text(
+                              r.error!,
+                              style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                            ),
+                        ],
+                      ),
+                    ),
+                    if ((r.retryCount > 0) || ((r.deliveryRetryCount ?? 0) > 0))
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: Colors.orangeAccent.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '↺ ${r.retryCount + (r.deliveryRetryCount ?? 0)}',
+                          style: const TextStyle(
+                            color: Colors.orangeAccent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 
-  Widget _sessionStateBadge(SmsSession session) {
+  Widget _buildStatsCard() {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.03),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Session Stats',
+                style: TextStyle(
+                  color: const Color(0xFFA1A1AA),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                'SIM: ${session.simLabel}',
+                style: TextStyle(color: const Color(0xFF71717A), fontSize: 12),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              _statItem('Total', session.totalCount.toString(), const Color(0xFFD4D4D8)),
+              const SizedBox(width: 20),
+              _statItem('Sent ✓', session.sentCount.toString(), Colors.greenAccent),
+              const SizedBox(width: 20),
+              _statItem('Failed ✗', session.failedCount.toString(), Colors.redAccent),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              _statItem('Pending ⌛', session.pendingCount.toString(), const Color(0xFF71717A)),
+              const SizedBox(width: 20),
+              _statItem('Not Delivered ⚠️', session.sentButNotDeliveredCount.toString(), Colors.orangeAccent),
+              const Spacer(),
+              if (session.retryPass > 0)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.blueAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'Retry ${session.retryPass}',
+                    style: TextStyle(color: Colors.blueAccent, fontSize: 11, fontWeight: FontWeight.w500),
+                  ),
+                ),
+              if (!session.isComplete) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.greenAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text(
+                    'Running',
+                    style: TextStyle(color: Colors.greenAccent, fontSize: 11, fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 8),
+          if ((session.failedCount > 0 || session.sentButNotDeliveredCount > 0) && session.isComplete)
+            Align(
+              alignment: Alignment.centerRight,
+              child: ElevatedButton.icon(
+                onPressed: () => _retrySession(),
+                icon: const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Retry Failed'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orangeAccent,
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _retrySession() {
+    store.retrySession(session.id);
+  }
+
+  Widget _statItem(String label, String value, Color color) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          value,
+          style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        Text(
+          label,
+          style: TextStyle(color: const Color(0xFF71717A), fontSize: 11),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStateBadge() {
     String label;
     Color color;
 
@@ -1300,6 +1030,23 @@ class _HomeScreenState extends State<HomeScreen> {
       decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(20)),
       child: Text(label, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.w600)),
     );
+  }
+
+  Widget _recipientIcon(SmsRecipientStatus status) {
+    switch (status) {
+      case SmsRecipientStatus.sent:
+        return const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 20);
+      case SmsRecipientStatus.sentNotDelivered:
+        return const Icon(Icons.check_circle_outline_rounded, color: Colors.orangeAccent, size: 20);
+      case SmsRecipientStatus.failed:
+        return const Icon(Icons.error_rounded, color: Colors.redAccent, size: 20);
+      case SmsRecipientStatus.pending:
+        return const SizedBox(
+          width: 20,
+          height: 20,
+          child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFF71717A)),
+        );
+    }
   }
 }
 

@@ -21,12 +21,10 @@ class SmsForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        // Start foreground IMMEDIATELY
         startForeground(NOTIFICATION_ID, buildNotification())
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Service already running, nothing else needed
         return START_STICKY
     }
 
@@ -44,7 +42,7 @@ class SmsForegroundService : Service() {
                 "SMS Service",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Keeps SMS sending alive in background"
+                description = "Keeps SMS sending active in the background"
             }
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
             manager.createNotificationChannel(channel)

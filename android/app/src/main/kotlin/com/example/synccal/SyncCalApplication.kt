@@ -10,7 +10,7 @@ class SynCalApplication : Application() {
     override fun onCreate() {
         super.onCreate()
 
-        // Pre-warm FlutterEngine
+        // Pre‑warm FlutterEngine
         val flutterEngine = FlutterEngine(this)
         flutterEngine.dartExecutor.executeDartEntrypoint(
             DartExecutor.DartEntrypoint.createDefault()
@@ -19,5 +19,7 @@ class SynCalApplication : Application() {
 
         // Init SMS status tracker (registers receivers globally)
         SmsStatusTracker.init(this)
+
+        // No WorkManager – resume is handled by Flutter side when app is opened
     }
 }

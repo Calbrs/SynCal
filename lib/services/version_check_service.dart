@@ -1,4 +1,3 @@
-// lib/services/version_check_service.dart
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -25,7 +24,6 @@ class UpdateCheckResult {
 class VersionCheckService {
   static const String _latestReleaseUrl =
       'https://api.github.com/repos/Calbrs/SynCal/releases/latest';
-
   static const String _fallbackReleasesUrl =
       'https://github.com/Calbrs/SynCal/releases';
 
@@ -64,12 +62,11 @@ class VersionCheckService {
         String? localFilePath;
         if (apkDownloadUrl != null) {
           try {
-            final dir = await getExternalStorageDirectory();
-            if (dir != null) {
-              final file = File('${dir.path}/update_v$latestVersionStr.apk');
-              if (file.existsSync() && file.lengthSync() > 100000) {
-                localFilePath = file.path;
-              }
+            // Use application documents directory – private, no permission required
+            final dir = await getApplicationDocumentsDirectory();
+            final file = File('${dir.path}/update_v$latestVersionStr.apk');
+            if (file.existsSync() && file.lengthSync() > 100000) {
+              localFilePath = file.path;
             }
           } catch (_) {}
         }
@@ -114,9 +111,7 @@ class VersionCheckService {
       }
       if (apkUrl == null) throw Exception('APK not found in release');
 
-      final dir = await getExternalStorageDirectory();
-      if (dir == null) throw Exception('Storage not available');
-
+      final dir = await getApplicationDocumentsDirectory();
       final file = File('${dir.path}/update_v$version.apk');
 
       if (file.existsSync() && file.lengthSync() > 500000) {
@@ -241,7 +236,10 @@ class VersionCheckService {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(10)),
-                  child: Text(changelog.length > 350 ? '${changelog.substring(0, 350)}...' : changelog, style: const TextStyle(fontSize: 13, height: 1.4)),
+                  child: Text(
+                    changelog.length > 350 ? '${changelog.substring(0, 350)}...' : changelog,
+                    style: const TextStyle(fontSize: 13, height: 1.4),
+                  ),
                 ),
               ],
               const SizedBox(height: 16),

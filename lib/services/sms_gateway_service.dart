@@ -82,9 +82,11 @@ class SmsGatewayService {
     });
   }
 
-  static Future<bool> checkPermissions() async => await _channel.invokeMethod<bool>('checkSmsPermissions') ?? false;
+  static Future<bool> checkPermissions() async =>
+      await _channel.invokeMethod<bool>('checkSmsPermissions') ?? false;
 
-  static Future<bool> requestPermissions() async => await _channel.invokeMethod<bool>('requestSmsPermissions') ?? false;
+  static Future<bool> requestPermissions() async =>
+      await _channel.invokeMethod<bool>('requestSmsPermissions') ?? false;
 
   static Future<List<SimCard>> getSimCards() async {
     final raw = await _channel.invokeListMethod('getSimCards');
@@ -93,7 +95,10 @@ class SmsGatewayService {
   }
 
   static Future<SmsResult> sendSms({required String to, required String message, int simSlot = -1}) async {
-    final result = await _channel.invokeMethod<Map<Object?, Object?>>('sendSms', {'to': to, 'message': message, 'simSlot': simSlot});
+    final result = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'sendSms',
+      {'to': to, 'message': message, 'simSlot': simSlot},
+    );
     if (result == null) throw PlatformException(code: 'NULL_RESULT', message: 'sendSms returned null');
     return SmsResult.fromMap(result);
   }
@@ -104,7 +109,20 @@ class SmsGatewayService {
     return SmsResult.fromMap(result);
   }
 
-  static Future<void> startForegroundService() async => await _channel.invokeMethod('startForegroundService');
+  // ---- Foreground service ----
+  static Future<void> startForegroundService() async =>
+      await _channel.invokeMethod('startForegroundService');
 
-  static Future<void> stopForegroundService() async => await _channel.invokeMethod('stopForegroundService');
+  static Future<void> stopForegroundService() async =>
+      await _channel.invokeMethod('stopForegroundService');
+
+  // ---- Install permission ----
+  static Future<bool> canInstallPackages() async =>
+      await _channel.invokeMethod<bool>('canInstallPackages') ?? false;
+
+  static Future<bool> requestInstallPermission() async =>
+      await _channel.invokeMethod<bool>('requestInstallPermission') ?? false;
+
+  static Future<void> installApk(String filePath) async =>
+      await _channel.invokeMethod('installApk', {'filePath': filePath});
 }

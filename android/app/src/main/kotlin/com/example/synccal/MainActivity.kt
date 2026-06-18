@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.provider.Settings
 import android.telephony.SmsManager
 import android.telephony.SubscriptionManager
 import android.util.Log
@@ -27,14 +28,15 @@ class MainActivity : FlutterActivity() {
         private const val SMS_CHANNEL = "com.example.SynCal/sms"
         private const val TAG = "SmsGateway"
         private const val REQUEST_SMS_PERMISSIONS = 101
+        private const val REQUEST_INSTALL_PERMISSION = 102
         private const val ENGINE_ID = "sync_cal_engine"
     }
 
     private lateinit var channel: MethodChannel
     private var permissionResult: MethodChannel.Result? = null
+    private var installPermissionResult: MethodChannel.Result? = null
 
     override fun provideFlutterEngine(context: Context): FlutterEngine? {
-        // Use the cached engine from Application
         return FlutterEngineCache.getInstance().get(ENGINE_ID)
     }
 
@@ -42,7 +44,6 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
 
         channel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SMS_CHANNEL)
-        // Give the channel to the status tracker so it can send updates
         SmsStatusTracker.setChannel(channel)
 
         channel.setMethodCallHandler { call, result ->
@@ -70,6 +71,12 @@ class MainActivity : FlutterActivity() {
                     }
                 }
                 "installApk" -> installApk(call.argument<String>("filePath") ?: "", result)
+                "canInstallPackages" -> {
+                    result.success(canInstallPackages())
+                }
+                "requestInstallPermission" -> {
+                    requestInstallPermission(result)
+                }
                 "startForegroundService" -> {
                     val intent = Intent(this, SmsForegroundService::class.java)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -87,6 +94,8 @@ class MainActivity : FlutterActivity() {
             }
         }
     }
+
+    // ---- SMS Sending ----
 
     private fun sendSms(to: String, message: String, simSlot: Int, result: MethodChannel.Result) {
         val msgId = UUID.randomUUID().toString()
@@ -165,10 +174,15 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    // ---- Permissions ----
+
     private fun hasSmsPermissions(): Boolean {
         val send = ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS)
-        val read = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE)
-        return send == PackageManager.PERMISSION_GRANTED && read == PackageManager.PERMISSION_GRANTED
+        val readPhoneState = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE)
+        val readContacts = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS)
+        return send == PackageManager.PERMISSION_GRANTED &&
+                readPhoneState == PackageManager.PERMISSION_GRANTED &&
+                readContacts == PackageManager.PERMISSION_GRANTED
     }
 
     private fun handleRequestPermissions(result: MethodChannel.Result) {
@@ -179,22 +193,29 @@ class MainActivity : FlutterActivity() {
         permissionResult = result
         val permissions = mutableListOf(
             Manifest.permission.SEND_SMS,
-            Manifest.permission.READ_PHONE_STATE
+            Manifest.permission.READ_PHONE_STATE,
+            Manifest.permission.READ_CONTACTS
         )
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED) {
-            permissions.add(Manifest.permission.READ_SMS)
-        }
         ActivityCompat.requestPermissions(this, permissions.toTypedArray(), REQUEST_SMS_PERMISSIONS)
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == REQUEST_SMS_PERMISSIONS) {
-            val granted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
-            permissionResult?.success(granted)
-            permissionResult = null
+        when (requestCode) {
+            REQUEST_SMS_PERMISSIONS -> {
+                val granted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+                permissionResult?.success(granted)
+                permissionResult = null
+            }
+            REQUEST_INSTALL_PERMISSION -> {
+                val granted = grantResults.isNotEmpty() && grantResults.all { it == PackageManager.PERMISSION_GRANTED }
+                installPermissionResult?.success(granted)
+                installPermissionResult = null
+            }
         }
     }
+
+    // ---- SIM cards ----
 
     private fun getSimCards(): List<Map<String, Any>> {
         if (!hasSmsPermissions()) return emptyList()
@@ -218,6 +239,35 @@ class MainActivity : FlutterActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching SIM cards: ${e.message}")
             emptyList()
+        }
+    }
+
+    // ---- Self‑update ----
+
+    private fun canInstallPackages(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            packageManager.canRequestPackageInstalls()
+        } else {
+            true
+        }
+    }
+
+    private fun requestInstallPermission(result: MethodChannel.Result) {
+        if (canInstallPackages()) {
+            result.success(true)
+            return
+        }
+        installPermissionResult = result
+        val intent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName"))
+        startActivityForResult(intent, REQUEST_INSTALL_PERMISSION)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_INSTALL_PERMISSION) {
+            val granted = canInstallPackages()
+            installPermissionResult?.success(granted)
+            installPermissionResult = null
         }
     }
 

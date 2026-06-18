@@ -1,5 +1,3 @@
-// lib/app_routes.dart
-
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -8,6 +6,9 @@ import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/splash_screen.dart';
 import 'screens/authentication.dart';
+import 'screens/link_management_screen.dart';
+import 'screens/scheduled_messages_screen.dart';
+import 'screens/add_schedule_screen.dart';
 
 class AppRoutes {
   static const String splash = '/';
@@ -15,6 +16,9 @@ class AppRoutes {
   static const String settings = '/settings';
   static const String auth = '/auth';
   static const String createEvent = '/create-event';
+  static const String links = '/links';
+  static const String scheduled = '/scheduled';
+  static const String addSchedule = '/scheduled/add';
 
   static Page<dynamic> _buildSmoothTransitionPage({
     required LocalKey key,
@@ -91,6 +95,30 @@ class AppRoutes {
         pageBuilder: (context, state) => _buildSmoothTransitionPage(
           key: state.pageKey,
           child: const CreateEventScreen(),
+        ),
+      ),
+      GoRoute(
+        path: links,
+        name: 'links',
+        pageBuilder: (context, state) => _buildSmoothTransitionPage(
+          key: state.pageKey,
+          child: const LinkManagementScreen(),
+        ),
+      ),
+      GoRoute(
+        path: scheduled,
+        name: 'scheduled',
+        pageBuilder: (context, state) => _buildSmoothTransitionPage(
+          key: state.pageKey,
+          child: const ScheduledMessagesScreen(),
+        ),
+      ),
+      GoRoute(
+        path: addSchedule,
+        name: 'addSchedule',
+        pageBuilder: (context, state) => _buildSmoothTransitionPage(
+          key: state.pageKey,
+          child: const AddScheduleScreen(),
         ),
       ),
     ],
