@@ -33,8 +33,6 @@ class _LinkManagementScreenState extends State<LinkManagementScreen> {
     if (!mounted) return;
     setState(() => _loading = true);
     try {
-      // If getActiveLinks doesn't exist, fetch the single active link instead
-      // and wrap it in a list for display.
       final activeLink = await ApiClient.instance.getActiveLink();
       if (mounted) {
         setState(() {
@@ -241,7 +239,7 @@ class _LinkManagementScreenState extends State<LinkManagementScreen> {
                                     if (mounted) {
                                       setModalState(() => generating = false);
                                       Navigator.pop(ctx);
-                                      _loadLinks(); // refresh list
+                                      _loadLinks();
                                       ScaffoldMessenger.of(context).showSnackBar(
                                         const SnackBar(content: Text('Link generated successfully')),
                                       );

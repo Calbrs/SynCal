@@ -17,8 +17,8 @@ class SmsRecipient extends HiveObject {
   @HiveField(2) SmsRecipientStatus status;
   @HiveField(3) String? error;
   @HiveField(4) String? msgId;
-  @HiveField(5) int retryCount;          // send failures
-  @HiveField(6) int? deliveryRetryCount;  // sent but not delivered (nullable for backward compat)
+  @HiveField(5) int retryCount;
+  @HiveField(6) int? deliveryRetryCount;
 
   SmsRecipient({
     required this.name,
@@ -27,7 +27,7 @@ class SmsRecipient extends HiveObject {
     this.error,
     this.msgId,
     this.retryCount = 0,
-    this.deliveryRetryCount = 0, // default for new objects
+    this.deliveryRetryCount = 0,
   });
 }
 
@@ -50,10 +50,15 @@ class SmsSession extends HiveObject {
   @HiveField(7) int retryPass;
   @HiveField(8) DateTime? finishedAt;
 
-  static const int maxSendRetries = 3;         // for failed sends
-  static const int maxDeliveryRetries = 2;     // for sent but not delivered
+  /// ID of the ScheduledMessage that triggered this session.
+  /// Null for manual (non-scheduled) sends.
+  /// Used by SmsSessionStore.sessionForSchedule() to detect duplicate
+  /// sessions when both UI isolate and headless isolate race to create
+  /// a session for the same scheduled message.
+  @HiveField(9) String? scheduleId;
 
-  // UI compatibility
+  static const int maxSendRetries = 3;
+  static const int maxDeliveryRetries = 2;
   static int get maxRetries => maxSendRetries;
 
   SmsSession({
@@ -66,6 +71,7 @@ class SmsSession extends HiveObject {
     this.state = SmsSessionState.running,
     this.retryPass = 0,
     this.finishedAt,
+    this.scheduleId,
   });
 
   int get totalCount => recipients.length;

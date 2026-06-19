@@ -94,18 +94,29 @@ class SmsGatewayService {
     return raw.map((e) => SimCard.fromMap(e as Map<Object?, Object?>)).toList();
   }
 
-  static Future<SmsResult> sendSms({required String to, required String message, int simSlot = -1}) async {
+  static Future<SmsResult> sendSms({
+    required String to,
+    required String message,
+    int simSlot = -1,
+  }) async {
     final result = await _channel.invokeMethod<Map<Object?, Object?>>(
       'sendSms',
       {'to': to, 'message': message, 'simSlot': simSlot},
     );
-    if (result == null) throw PlatformException(code: 'NULL_RESULT', message: 'sendSms returned null');
+    if (result == null) {
+      throw PlatformException(code: 'NULL_RESULT', message: 'sendSms returned null');
+    }
     return SmsResult.fromMap(result);
   }
 
   static Future<SmsResult> getSmsStatus(String msgId) async {
-    final result = await _channel.invokeMethod<Map<Object?, Object?>>('getSmsStatus', {'msgId': msgId});
-    if (result == null) throw PlatformException(code: 'NULL_RESULT', message: 'getSmsStatus returned null');
+    final result = await _channel.invokeMethod<Map<Object?, Object?>>(
+      'getSmsStatus',
+      {'msgId': msgId},
+    );
+    if (result == null) {
+      throw PlatformException(code: 'NULL_RESULT', message: 'getSmsStatus returned null');
+    }
     return SmsResult.fromMap(result);
   }
 
@@ -125,4 +136,65 @@ class SmsGatewayService {
 
   static Future<void> installApk(String filePath) async =>
       await _channel.invokeMethod('installApk', {'filePath': filePath});
+
+  // ---- Alarm-based scheduled-message wake-up ----
+
+  /// Schedules (or reschedules) a native AlarmManager wake-up at [triggerAt].
+  /// Survives the app being swiped away — backed by AlarmManager + a headless
+  /// FlutterEngine, not by anything running inside the UI process.
+  static Future<void> scheduleAlarm(DateTime triggerAt) async =>
+      await _channel.invokeMethod('scheduleAlarm', {
+        'triggerAtMillis': triggerAt.millisecondsSinceEpoch,
+      });
+
+  static Future<void> cancelAlarm() async =>
+      await _channel.invokeMethod('cancelAlarm');
+
+  static Future<bool> canScheduleExactAlarms() async =>
+      await _channel.invokeMethod<bool>('canScheduleExactAlarms') ?? false;
+
+  /// Opens system settings for exact-alarm permission.
+  /// Returns immediately — re-check with canScheduleExactAlarms() after resume.
+  static Future<void> requestExactAlarmPermission() async =>
+      await _channel.invokeMethod('requestExactAlarmPermission');
+
+  /// Persists the Dart callback handle so ScheduleAlarmReceiver.kt can look
+  /// it up even when the app process has been killed.
+  static Future<void> saveHeadlessCallbackHandle(int handle) async =>
+      await _channel.invokeMethod('saveHeadlessCallbackHandle', {'handle': handle});
+
+  // ---- Battery Optimization ----
+
+  /// Returns true if this app is already whitelisted from battery
+  /// optimizations (i.e. the OS will not defer or kill background tasks).
+  /// On XOS/Transsion devices this is a hard requirement for AlarmManager
+  /// to fire reliably when the app has been swiped away.
+  static Future<bool> isIgnoringBatteryOptimizations() async =>
+      await _channel.invokeMethod<bool>('isIgnoringBatteryOptimizations') ?? false;
+
+  /// Opens the system "Ignore battery optimizations" dialog for this app.
+  /// Returns true if already granted, false if the dialog was opened (the
+  /// user must tap Allow — re-check with isIgnoringBatteryOptimizations()
+  /// after the user returns to the app).
+  ///
+  /// Requires in AndroidManifest.xml:
+  ///   <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+  static Future<bool> requestIgnoreBatteryOptimizations() async =>
+      await _channel.invokeMethod<bool>('requestIgnoreBatteryOptimizations') ?? false;
+
+  // ---- OEM Autostart (Transsion XOS / Xiaomi / Huawei / Oppo / Vivo etc.) ----
+
+  /// Attempts to open the OEM-specific "Autostart" settings screen.
+  /// This is required on Transsion (Infinix/Tecno/Itel), Xiaomi, Huawei,
+  /// Oppo, Vivo and similar devices — without it the OS silently blocks
+  /// BroadcastReceivers from starting a new process when the app is not
+  /// already running.
+  ///
+  /// Returns true if a vendor-specific screen was opened, false if only the
+  /// generic App Info screen was available as a fallback.
+  ///
+  /// This cannot be checked programmatically — always show the user a prompt
+  /// explaining what to do on the settings screen that opens.
+  static Future<bool> openAutostartSettings() async =>
+      await _channel.invokeMethod<bool>('openAutostartSettings') ?? false;
 }

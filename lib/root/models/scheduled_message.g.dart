@@ -8,7 +8,7 @@ part of 'scheduled_message.dart';
 
 class ScheduledMessageAdapter extends TypeAdapter<ScheduledMessage> {
   @override
-  final int typeId = 106;
+  final int typeId = 107;
 
   @override
   ScheduledMessage read(BinaryReader reader) {
@@ -27,13 +27,15 @@ class ScheduledMessageAdapter extends TypeAdapter<ScheduledMessage> {
       isActive: fields[7] as bool,
       createdAt: fields[8] as DateTime,
       sentCount: fields[9] as int?,
+      status: fields[10] as ScheduleStatus,
+      completedAt: fields[11] as DateTime?,
     );
   }
 
   @override
   void write(BinaryWriter writer, ScheduledMessage obj) {
     writer
-      ..writeByte(10)
+      ..writeByte(12)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -53,7 +55,11 @@ class ScheduledMessageAdapter extends TypeAdapter<ScheduledMessage> {
       ..writeByte(8)
       ..write(obj.createdAt)
       ..writeByte(9)
-      ..write(obj.sentCount);
+      ..write(obj.sentCount)
+      ..writeByte(10)
+      ..write(obj.status)
+      ..writeByte(11)
+      ..write(obj.completedAt);
   }
 
   @override
@@ -112,6 +118,50 @@ class RepetitionAdapter extends TypeAdapter<Repetition> {
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is RepetitionAdapter &&
+          runtimeType == other.runtimeType &&
+          typeId == other.typeId;
+}
+
+class ScheduleStatusAdapter extends TypeAdapter<ScheduleStatus> {
+  @override
+  final int typeId = 106;
+
+  @override
+  ScheduleStatus read(BinaryReader reader) {
+    switch (reader.readByte()) {
+      case 0:
+        return ScheduleStatus.pending;
+      case 1:
+        return ScheduleStatus.sent;
+      case 2:
+        return ScheduleStatus.failed;
+      default:
+        return ScheduleStatus.pending;
+    }
+  }
+
+  @override
+  void write(BinaryWriter writer, ScheduleStatus obj) {
+    switch (obj) {
+      case ScheduleStatus.pending:
+        writer.writeByte(0);
+        break;
+      case ScheduleStatus.sent:
+        writer.writeByte(1);
+        break;
+      case ScheduleStatus.failed:
+        writer.writeByte(2);
+        break;
+    }
+  }
+
+  @override
+  int get hashCode => typeId.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is ScheduleStatusAdapter &&
           runtimeType == other.runtimeType &&
           typeId == other.typeId;
 }

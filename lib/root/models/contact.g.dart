@@ -19,20 +19,26 @@ class ContactAdapter extends TypeAdapter<Contact> {
     return Contact(
       name: fields[0] as String,
       phones: (fields[1] as List).cast<String>(),
-      createdAt: fields[2] as DateTime,
+      createdAt: fields[2] as DateTime?,
+      studentId: fields[3] as int?,
+      isDeleted: fields[4] as bool,
     );
   }
 
   @override
   void write(BinaryWriter writer, Contact obj) {
     writer
-      ..writeByte(3)
+      ..writeByte(5)
       ..writeByte(0)
       ..write(obj.name)
       ..writeByte(1)
       ..write(obj.phones)
       ..writeByte(2)
-      ..write(obj.createdAt);
+      ..write(obj.createdAt)
+      ..writeByte(3)
+      ..write(obj.studentId)
+      ..writeByte(4)
+      ..write(obj.isDeleted);
   }
 
   @override

@@ -18,7 +18,6 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  // ─── Zinc color palette ──────────────────────────────────────
   static const Color zinc950 = Color(0xFF09090B);
   static const Color zinc900 = Color(0xFF18181B);
   static const Color zinc800 = Color(0xFF27272A);
@@ -89,7 +88,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // ─── Logout with Confirmation ────────────────────────────────
   Future<void> _logout() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -123,8 +121,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       await ApiClient.instance.unlink();
 
-      // Clear app data for a clean start
-      final boxes = ['settings', 'user', 'cache']; // Add other box names if needed
+      final boxes = ['settings', 'user', 'cache'];
       for (var boxName in boxes) {
         if (Hive.isBoxOpen(boxName)) {
           await Hive.box(boxName).clear();
@@ -135,7 +132,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
       if (!mounted) return;
 
-      Navigator.pop(context); // Close profile drawer
+      Navigator.pop(context);
       if (mounted) {
         context.go(AppRoutes.auth);
       }
@@ -150,8 +147,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       }
     }
   }
-
-  // ─── Profile Drawer (Normal Bottom Sheet Style) ──────────────
 
   void _showProfileDrawer() {
     final user = ApiClient.instance.linkedUser;
@@ -168,7 +163,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         return FractionallySizedBox(
-          heightFactor: 0.72, // Good default height where content is fully visible
+          heightFactor: 0.72,
           child: ClipRRect(
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             child: BackdropFilter(
@@ -195,8 +190,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                     const SizedBox(height: 20),
-
-                    // Scrollable content area
                     Expanded(
                       child: SingleChildScrollView(
                         padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -235,7 +228,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ),
                             ),
                             const SizedBox(height: 32),
-
                             _profileInfoTile(
                               icon: Icons.fingerprint_rounded,
                               label: 'SynCal ID',
@@ -247,13 +239,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               label: 'Username',
                               value: _username,
                             ),
-                            const SizedBox(height: 80), // Space before pinned button
+                            const SizedBox(height: 80),
                           ],
                         ),
                       ),
                     ),
-
-                    // Logout button pinned at the very bottom (5px from edge)
                     Padding(
                       padding: const EdgeInsets.fromLTRB(24, 0, 24, 5),
                       child: SizedBox(
@@ -335,8 +325,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
-
-  // ─── Report Problem Modal ──────────────────────────────────
 
   void _showReportProblemModal(BuildContext context) {
     final controller = TextEditingController();
@@ -499,8 +487,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
-  // ─── Build ─────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     return AnnotatedRegion<SystemUiOverlayStyle>(
@@ -562,9 +548,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     trailing: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
                   ),
                 ),
-
                 const SizedBox(height: 24),
-
                 _sectionLabel('Updates'),
                 const SizedBox(height: 8),
                 Container(
@@ -588,9 +572,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         : const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
                   ),
                 ),
-
                 const SizedBox(height: 24),
-
                 _sectionLabel('Support'),
                 const SizedBox(height: 8),
                 Container(
@@ -609,7 +591,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
               ],
             ),
-
             Positioned(
               bottom: 30,
               left: 0,
@@ -681,7 +662,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   if (subtitle != null) ...[
                     const SizedBox(height: 2),
                     Text(
-                      subtitle,
+                      subtitle!,
                       style: TextStyle(color: zinc400, fontSize: 12.5),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -690,7 +671,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
             ),
-            if (trailing != null) trailing,
+            if (trailing != null) trailing!,
           ],
         ),
       ),

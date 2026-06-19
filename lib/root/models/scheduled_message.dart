@@ -11,6 +11,13 @@ enum Repetition {
 }
 
 @HiveType(typeId: 106)
+enum ScheduleStatus {
+  @HiveField(0) pending,
+  @HiveField(1) sent,
+  @HiveField(2) failed,
+}
+
+@HiveType(typeId: 107)
 class ScheduledMessage extends HiveObject {
   @HiveField(0)
   final String id;
@@ -32,6 +39,10 @@ class ScheduledMessage extends HiveObject {
   final DateTime createdAt;
   @HiveField(9)
   int? sentCount;
+  @HiveField(10)
+  ScheduleStatus status;           // pending, sent, failed
+  @HiveField(11)
+  DateTime? completedAt;           // when it was sent or failed
 
   ScheduledMessage({
     required this.id,
@@ -44,9 +55,10 @@ class ScheduledMessage extends HiveObject {
     this.isActive = true,
     required this.createdAt,
     this.sentCount,
+    this.status = ScheduleStatus.pending,
+    this.completedAt,
   });
 
-  /// Returns the next occurrence time based on repetition.
   DateTime nextOccurrence(DateTime from) {
     switch (repetition) {
       case Repetition.none:
@@ -60,16 +72,21 @@ class ScheduledMessage extends HiveObject {
     }
   }
 
-  /// Whether this schedule should be considered "done" (no more repetitions).
   bool get isComplete {
     if (repetition == Repetition.none) {
-      return DateTime.now().isAfter(scheduledTime);
+      return status != ScheduleStatus.pending;
     }
-    // For repeating, it's never complete; we keep it active until user deactivates.
     return false;
   }
 
-  /// Create a copy of this schedule with updated fields.
+  /// Auto‑delete after 24 hours from scheduled time (for one‑off) or from completion?
+  bool get shouldAutoDelete {
+    if (repetition != Repetition.none) return false; // only one‑off
+    if (status == ScheduleStatus.pending) return false;
+    final endTime = completedAt ?? scheduledTime;
+    return DateTime.now().difference(endTime) > const Duration(hours: 24);
+  }
+
   ScheduledMessage copyWith({
     String? id,
     String? message,
@@ -81,6 +98,8 @@ class ScheduledMessage extends HiveObject {
     bool? isActive,
     DateTime? createdAt,
     int? sentCount,
+    ScheduleStatus? status,
+    DateTime? completedAt,
   }) {
     return ScheduledMessage(
       id: id ?? this.id,
@@ -93,6 +112,8 @@ class ScheduledMessage extends HiveObject {
       isActive: isActive ?? this.isActive,
       createdAt: createdAt ?? this.createdAt,
       sentCount: sentCount ?? this.sentCount,
+      status: status ?? this.status,
+      completedAt: completedAt ?? this.completedAt,
     );
   }
 }

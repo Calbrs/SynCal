@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
-
 import '../models/contact.dart';
 import '../models/sms_session.dart';
 import '../../services/sms_gateway_service.dart';
@@ -17,7 +16,6 @@ class ShimmerLoading extends StatefulWidget {
   final Widget child;
   final bool isLoading;
   const ShimmerLoading({super.key, required this.child, this.isLoading = true});
-
   @override
   State<ShimmerLoading> createState() => _ShimmerLoadingState();
 }
@@ -25,20 +23,17 @@ class ShimmerLoading extends StatefulWidget {
 class _ShimmerLoadingState extends State<ShimmerLoading> with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _animation;
-
   @override
   void initState() {
     super.initState();
     _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 1200))..repeat();
     _animation = Tween<double>(begin: 0.0, end: 1.0).animate(CurvedAnimation(parent: _controller, curve: Curves.easeInOut));
   }
-
   @override
   void dispose() {
     _controller.dispose();
     super.dispose();
   }
-
   @override
   Widget build(BuildContext context) {
     return widget.isLoading
@@ -57,7 +52,6 @@ class _ShimmerLoadingState extends State<ShimmerLoading> with SingleTickerProvid
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
-
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
@@ -69,12 +63,10 @@ class _HomeScreenState extends State<HomeScreen> {
   static const Color zinc700 = Color(0xFF3F3F46);
   static const Color zinc500 = Color(0xFF71717A);
   static const Color zinc400 = Color(0xFFA1A1AA);
-
   List<SimCard> _simCards = [];
   SimCard? _selectedSim;
   bool _simLoaded = false;
   bool _permissionsGranted = false;
-
   bool _showUpdateBanner = false;
   String? _latestVersion;
   String? _localApkPath;
@@ -162,7 +154,6 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!_isDownloading) _startDownload();
       return;
     }
-
     final canInstall = await SmsGatewayService.canInstallPackages();
     if (!canInstall) {
       final granted = await SmsGatewayService.requestInstallPermission();
@@ -178,7 +169,6 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
     }
-
     try {
       await SmsGatewayService.installApk(_localApkPath!);
     } catch (e) {
@@ -193,7 +183,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildUpdateBanner() {
     final isReady = _localApkPath != null && !_isDownloading;
     final showProgress = _isDownloading;
-
     return AnimatedSlide(
       offset: _showUpdateBanner ? Offset.zero : const Offset(0, 1),
       duration: const Duration(milliseconds: 350),
@@ -264,7 +253,6 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final indicatorColor = _permissionsGranted ? Colors.green : Colors.orangeAccent;
     final indicatorLabel = _permissionsGranted ? 'Online' : 'No Permission';
-    final hasContacts = _hasContactsWithNumbers();
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
@@ -312,78 +300,90 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         body: Consumer<SmsSessionStore>(
           builder: (context, store, _) {
-            if (!store.isLoaded) {
-              return const Center(child: CircularProgressIndicator(color: Colors.white30, strokeWidth: 2));
-            }
             return Stack(
               children: [
-                store.sessions.isEmpty
-                    ? Center(
-                        child: Text(
-                          'No messages sent yet.\nTap Send Message to start.',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: zinc500, fontSize: 15),
-                        ),
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 160),
-                        itemCount: store.sessions.length,
-                        itemBuilder: (context, index) {
-                          final session = store.sessions[index];
-                          return _SessionCard(
-                            session: session,
-                            onTap: () => _showSessionDetail(context, session.id),
-                            onDelete: () => _confirmDeleteSession(context, session.id),
-                          );
-                        },
-                      ),
-                Positioned(
-                  left: 20,
-                  right: 20,
-                  bottom: 10,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (_showUpdateBanner) ...[_buildUpdateBanner(), const SizedBox(height: 10)],
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 5),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(30),
-                          child: BackdropFilter(
-                            filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
-                            child: Container(
-                              width: double.infinity,
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.06),
-                                borderRadius: BorderRadius.circular(30),
-                                border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+                ValueListenableBuilder<Box<Contact>>(
+                  valueListenable: Hive.box<Contact>('contacts').listenable(),
+                  builder: (context, contactBox, _) {
+                    final hasContacts = contactBox.values.any((c) => c.phones.isNotEmpty);
+
+                    if (!store.isLoaded) {
+                      return const Center(child: CircularProgressIndicator(color: Colors.white30, strokeWidth: 2));
+                    }
+
+                    return Stack(
+                      children: [
+                        store.sessions.isEmpty
+                            ? Center(
+                                child: Text(
+                                  'No messages sent yet.\nTap Send Message to start.',
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(color: zinc500, fontSize: 15),
+                                ),
+                              )
+                            : ListView.builder(
+                                padding: const EdgeInsets.fromLTRB(16, 12, 16, 160),
+                                itemCount: store.sessions.length,
+                                itemBuilder: (context, index) {
+                                  final session = store.sessions[index];
+                                  return _SessionCard(
+                                    session: session,
+                                    onTap: () => _showSessionDetail(context, session.id),
+                                    onDelete: () => store.deleteSession(session.id),
+                                  );
+                                },
                               ),
-                              child: SizedBox(
-                                height: 44,
-                                child: ElevatedButton(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.transparent,
-                                    shadowColor: Colors.transparent,
-                                    padding: EdgeInsets.zero,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                                  ),
-                                  onPressed: (_simLoaded && _permissionsGranted && hasContacts)
-                                      ? () => _showMessageDrawer(context)
-                                      : null,
-                                  child: Text(
-                                    _permissionsGranted
-                                        ? (hasContacts ? 'Send Message' : 'No Contacts')
-                                        : 'Permissions Required',
-                                    style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: 0.3),
+                        Positioned(
+                          left: 20,
+                          right: 20,
+                          bottom: 10,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_showUpdateBanner) ...[_buildUpdateBanner(), const SizedBox(height: 10)],
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 5),
+                                child: ClipRRect(
+                                  borderRadius: BorderRadius.circular(30),
+                                  child: BackdropFilter(
+                                    filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                                    child: Container(
+                                      width: double.infinity,
+                                      decoration: BoxDecoration(
+                                        color: Colors.white.withValues(alpha: 0.06),
+                                        borderRadius: BorderRadius.circular(30),
+                                        border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+                                      ),
+                                      child: SizedBox(
+                                        height: 44,
+                                        child: ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: Colors.transparent,
+                                            shadowColor: Colors.transparent,
+                                            padding: EdgeInsets.zero,
+                                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                                          ),
+                                          onPressed: (_simLoaded && _permissionsGranted && hasContacts)
+                                              ? () => _showMessageDrawer(context)
+                                              : null,
+                                          child: Text(
+                                            _permissionsGranted
+                                                ? (hasContacts ? 'Send Message' : 'No Contacts')
+                                                : 'Permissions Required',
+                                            style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600, letterSpacing: 0.3),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                   ),
                                 ),
                               ),
-                            ),
+                            ],
                           ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    );
+                  },
                 ),
               ],
             );
@@ -422,7 +422,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 _buildTile(
                   icon: Icons.contacts_rounded,
-                  title: 'Contacts',
+                  title: 'SynCals Contacts',
                   onTap: () {
                     Navigator.pop(ctx);
                     if (mounted) context.push(AppRoutes.createEvent);
@@ -431,22 +431,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 4),
                 _buildTile(
                   icon: Icons.link_rounded,
-                  title: 'Links',
+                  title: 'Link Management',
                   onTap: () {
                     Navigator.pop(ctx);
                     if (mounted) context.push(AppRoutes.links);
                   },
                 ),
-                const SizedBox(height: 4),
-                _buildTile(
-                  icon: Icons.schedule_rounded,
-                  title: 'Scheduled',
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    if (mounted) context.push(AppRoutes.scheduled);
-                  },
-                ),
-                const SizedBox(height: 4),
+               const SizedBox(height: 4),
                 _buildTile(
                   icon: Icons.settings_rounded,
                   title: 'Settings',
@@ -501,7 +492,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showMessageDrawer(BuildContext context) {
     final msgController = TextEditingController();
     SimCard? drawerSim = _selectedSim;
-
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -736,45 +726,12 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
   }
-
-  void _confirmDeleteSession(BuildContext context, String sessionId) {
-    final store = context.read<SmsSessionStore>();
-    final session = store.sessions.firstWhere((s) => s.id == sessionId);
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: zinc900,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Delete log?', style: TextStyle(color: Colors.white)),
-        content: Text(
-          'This will permanently remove the session log from ${DateFormat('MMM dd, HH:mm').format(session.startedAt)}.',
-          style: TextStyle(color: zinc400, fontSize: 14),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: zinc400)),
-          ),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              if (mounted) {
-                store.deleteSession(sessionId);
-              }
-            },
-            child: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _SessionDetailContent extends StatelessWidget {
   final SmsSession session;
   final ScrollController scrollController;
   final SmsSessionStore store;
-
   const _SessionDetailContent({
     required this.session,
     required this.scrollController,
@@ -1013,7 +970,6 @@ class _SessionDetailContent extends StatelessWidget {
   Widget _buildStateBadge() {
     String label;
     Color color;
-
     if (!session.isComplete) {
       label = session.state == SmsSessionState.retrying ? 'Retrying…' : 'Sending…';
       color = Colors.blueAccent;
@@ -1024,7 +980,6 @@ class _SessionDetailContent extends StatelessWidget {
       label = '${session.failedCount} failed';
       color = Colors.orangeAccent;
     }
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(color: color.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(20)),
@@ -1054,7 +1009,6 @@ class _SessionCard extends StatelessWidget {
   final SmsSession session;
   final VoidCallback onTap;
   final VoidCallback onDelete;
-
   const _SessionCard({required this.session, required this.onTap, required this.onDelete});
 
   @override
@@ -1067,7 +1021,7 @@ class _SessionCard extends StatelessWidget {
     return Dismissible(
       key: ValueKey(session.id),
       direction: DismissDirection.endToStart,
-      confirmDismiss: (_) async {
+      confirmDismiss: (direction) async {
         if (!session.isComplete) {
           if (context.mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -1099,7 +1053,6 @@ class _SessionCard extends StatelessWidget {
       ),
       child: GestureDetector(
         onTap: onTap,
-        onLongPress: onDelete,
         child: Container(
           margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.all(16),
@@ -1118,18 +1071,7 @@ class _SessionCard extends StatelessWidget {
                     DateFormat('MMM dd, HH:mm').format(session.startedAt),
                     style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 12.5),
                   ),
-                  Row(
-                    children: [
-                      _buildBadge(session, isRunning, progressColor),
-                      if (session.isComplete) ...[
-                        const SizedBox(width: 8),
-                        GestureDetector(
-                          onTap: onDelete,
-                          child: Icon(Icons.close_rounded, color: Colors.white.withValues(alpha: 0.2), size: 18),
-                        ),
-                      ],
-                    ],
-                  ),
+                  _buildBadge(session, isRunning, progressColor),
                 ],
               ),
               const SizedBox(height: 10),
@@ -1182,7 +1124,6 @@ class _SessionCard extends StatelessWidget {
     } else {
       label = '${session.failedCount} failed';
     }
-
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
       decoration: BoxDecoration(color: progressColor.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(20)),

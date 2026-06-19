@@ -1,6 +1,3 @@
-// lib/screens/create_event_screen.dart
-// Updated to match the UI style of HomeScreen
-
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -12,7 +9,6 @@ import 'package:flutter_contacts/flutter_contacts.dart' as fc;
 import '../models/contact.dart';
 import '/core/api_client.dart';
 
-// ─── Shimmer loading widget (same as HomeScreen) ──────────────
 class ShimmerLoading extends StatefulWidget {
   final Widget child;
   final bool isLoading;
@@ -63,7 +59,6 @@ class CreateEventScreen extends StatefulWidget {
 }
 
 class _CreateEventScreenState extends State<CreateEventScreen> with SingleTickerProviderStateMixin {
-  // ─── Zinc color palette ──────────────────────────────────────
   static const Color zinc950 = Color(0xFF09090B);
   static const Color zinc900 = Color(0xFF18181B);
   static const Color zinc800 = Color(0xFF27272A);
@@ -87,7 +82,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
   Timer? _autoSyncTimer;
   static const Duration _syncInterval = Duration(seconds: 30);
 
-  // ── Sync enabled flag ────────────────────────────────────────
   bool _syncEnabled = false;
 
   @override
@@ -133,8 +127,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
     super.dispose();
   }
 
-  // ── Periodic sync ──────────────────────────────────────────────
-
   void _startPeriodicSync() {
     if (_autoSyncTimer != null || !_syncEnabled) return;
     _autoSyncTimer = Timer.periodic(_syncInterval, (timer) {
@@ -148,8 +140,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
     _autoSyncTimer?.cancel();
     _autoSyncTimer = null;
   }
-
-  // ── Sync ──────────────────────────────────────────────────────
 
   Future<void> _autoSync() async {
     if (ApiClient.instance.linkedUser == null || !_syncEnabled) return;
@@ -174,22 +164,25 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
   }
 
   void _mergeContacts(List<SyncedContact> synced) {
+    final existing = _contactBox.values.where((c) => !c.isDeleted).toList();
     for (final sc in synced) {
       if (sc.phones.isEmpty) continue;
-      final exists = _contactBox.values.any((c) =>
-          c.name.toLowerCase() == sc.name.toLowerCase() &&
-          c.phones.isNotEmpty && c.phones[0] == sc.phones[0]);
+      bool exists = existing.any((c) =>
+          (c.studentId != null && c.studentId == sc.studentId) ||
+          (c.name.toLowerCase() == sc.name.toLowerCase() &&
+              c.phones.isNotEmpty && c.phones[0] == sc.phones[0]));
       if (!exists) {
         _contactBox.add(Contact(
-            name: sc.name,
-            phones: sc.phones.take(2).toList(),
-            createdAt: DateTime.now()));
+          name: sc.name,
+          phones: sc.phones.take(2).toList(),
+          createdAt: DateTime.now(),
+          studentId: sc.studentId,
+          isDeleted: false,
+        ));
       }
     }
     _loadContacts();
   }
-
-  // ── Overlay menu ──────────────────────────────────────────────
 
   void _removeOverlay() {
     _overlayEntry?.remove();
@@ -204,6 +197,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
     if (box == null) return;
     final pos = box.localToGlobal(Offset.zero);
     final isLinked = ApiClient.instance.linkedUser != null;
+    final username = ApiClient.instance.linkedUser?.username ?? '';
 
     _overlayEntry = OverlayEntry(
       builder: (context) => Stack(
@@ -245,6 +239,24 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              child: Row(
+                                children: [
+                                  Icon(Icons.person_outline, color: Colors.white54, size: 18),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    username.isNotEmpty ? username : 'Not linked',
+                                    style: TextStyle(
+                                      color: username.isNotEmpty ? Colors.white : Colors.white38,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Divider(height: 1, thickness: 0.5, color: Colors.white24),
                             _buildMenuItem(
                               icon: Icons.person_add_outlined,
                               label: 'Add new contact',
@@ -322,7 +334,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
 
   Widget _buildSyncToggleItem(bool isLinked) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       child: Row(
         children: [
           Icon(
@@ -352,11 +364,18 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
               ],
             ),
           ),
-          Switch(
-            value: _syncEnabled && isLinked,
-            onChanged: (value) => _toggleSync(value, isLinked),
-            activeColor: Colors.greenAccent,
-            inactiveThumbColor: Colors.grey,
+          SizedBox(
+            width: 42,
+            height: 24,
+            child: Switch(
+              value: _syncEnabled && isLinked,
+              onChanged: (value) => _toggleSync(value, isLinked),
+              activeThumbColor: Colors.greenAccent,
+              inactiveThumbColor: Colors.grey,
+              activeTrackColor: Colors.greenAccent.withValues(alpha: 0.3),
+              inactiveTrackColor: Colors.white.withValues(alpha: 0.1),
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
           ),
         ],
       ),
@@ -371,7 +390,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
     }
 
     if (value && !_syncEnabled) {
-      final password = await _showPasswordDialog();
+      final password = await _showPasswordDrawer();
       if (password == null) return;
       try {
         final user = ApiClient.instance.linkedUser!;
@@ -392,84 +411,145 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
     }
   }
 
-  Future<String?> _showPasswordDialog() async {
+  Future<String?> _showPasswordDrawer() async {
     final controller = TextEditingController();
     bool obscure = true;
     final completer = Completer<String?>();
+    final focusNode = FocusNode();
 
-    showDialog(
+    showModalBottomSheet(
       context: context,
-      barrierDismissible: false,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
-          backgroundColor: zinc900,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          title: const Text(
-            'Re-enter password',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-          ),
-          content: TextField(
-            controller: controller,
-            obscureText: obscure,
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              hintText: 'Password',
-              hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.4)),
-              suffixIcon: IconButton(
-                icon: Icon(
-                  obscure ? Icons.visibility_off : Icons.visibility,
-                  color: Colors.white38,
+        builder: (ctx, setState) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            FocusScope.of(ctx).requestFocus(focusNode);
+          });
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(ctx).viewInsets.bottom,
+              left: 1,
+              right: 1,
+            ),
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+                child: Container(
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+                  decoration: BoxDecoration(
+                    color: zinc900,
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                    border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 0.5)),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 36,
+                          height: 4,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(color: zinc700, borderRadius: BorderRadius.circular(2)),
+                        ),
+                      ),
+                      const Text(
+                        'Re-enter password',
+                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Confirm your identity to enable sync',
+                        style: TextStyle(color: zinc400, fontSize: 13),
+                      ),
+                      const SizedBox(height: 20),
+                      TextField(
+                        controller: controller,
+                        focusNode: focusNode,
+                        obscureText: obscure,
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: 'Password',
+                          hintStyle: TextStyle(color: zinc500),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              obscure ? Icons.visibility_off : Icons.visibility,
+                              color: zinc400,
+                            ),
+                            onPressed: () => setState(() => obscure = !obscure),
+                          ),
+                          filled: true,
+                          fillColor: zinc800,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: Colors.greenAccent),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: zinc800,
+                                foregroundColor: zinc400,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                                elevation: 0,
+                              ),
+                              onPressed: () {
+                                Navigator.pop(ctx);
+                                completer.complete(null);
+                              },
+                              child: const Text('Cancel', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: zinc950,
+                                padding: const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                                elevation: 0,
+                              ),
+                              onPressed: () {
+                                final pw = controller.text.trim();
+                                if (pw.isNotEmpty) {
+                                  Navigator.pop(ctx);
+                                  completer.complete(pw);
+                                }
+                              },
+                              child: const Text('Confirm', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
-                onPressed: () => setState(() => obscure = !obscure),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Colors.greenAccent),
               ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.pop(ctx);
-                completer.complete(null);
-              },
-              child: const Text('Cancel', style: TextStyle(color: Colors.white54)),
-            ),
-            TextButton(
-              onPressed: () {
-                final pw = controller.text.trim();
-                if (pw.isNotEmpty) {
-                  Navigator.pop(ctx);
-                  completer.complete(pw);
-                }
-              },
-              child: const Text('Confirm', style: TextStyle(color: Colors.greenAccent)),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
 
     return completer.future;
   }
 
-  void _closeMenu() {
-    if (!_menuOpen) return;
-    _menuAnimController.reverse().then((_) {
-      _removeOverlay();
-      if (mounted) setState(() => _menuOpen = false);
-    });
-  }
-
-  // ── Contacts ──────────────────────────────────────────────────
-
   void _loadContacts() => setState(() {
-        contacts = _contactBox.values.toList()
+        contacts = _contactBox.values
+            .where((c) => !c.isDeleted)
+            .toList()
           ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
       });
 
@@ -482,8 +562,9 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
     setState(() {
       contacts = _contactBox.values
           .where((c) =>
-              c.name.toLowerCase().contains(q) ||
-              c.phones.any((p) => p.toLowerCase().contains(q)))
+              !c.isDeleted &&
+              (c.name.toLowerCase().contains(q) ||
+                  c.phones.any((p) => p.toLowerCase().contains(q))))
           .toList()
         ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
     });
@@ -491,6 +572,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
 
   String? _checkDuplicate(String name, String phone, {Contact? excludeContact}) {
     for (final c in _contactBox.values) {
+      if (c.isDeleted) continue;
       if (c == excludeContact) continue;
       if (c.name.toLowerCase() == name.toLowerCase()) {
         if (c.phones.contains(phone)) return 'This phone number already exists.';
@@ -499,8 +581,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
     }
     return null;
   }
-
-  // ── Menu actions ──────────────────────────────────────────────
 
   void _onAddNewContact() {
     _closeMenu();
@@ -511,8 +591,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
     _closeMenu();
     Future.delayed(const Duration(milliseconds: 220), _showContactPickerDrawer);
   }
-
-  // ── Contact picker ────────────────────────────────────────────
 
   void _showContactPickerDrawer() async {
     if (!await fc.FlutterContacts.requestPermission(readonly: true)) {
@@ -546,20 +624,25 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
                 .toList();
             if (name.isEmpty || phones.isEmpty) continue;
             if (_contactBox.values.any((c) =>
+                !c.isDeleted &&
                 c.name.toLowerCase() == name.toLowerCase() &&
                 c.phones.isNotEmpty &&
                 c.phones[0] == phones[0])) {
               continue;
             }
-            _contactBox.add(Contact(name: name, phones: phones, createdAt: DateTime.now()));
+            _contactBox.add(Contact(
+              name: name,
+              phones: phones,
+              createdAt: DateTime.now(),
+              studentId: null,
+              isDeleted: false,
+            ));
           }
           _loadContacts();
         },
       ),
     );
   }
-
-  // ── Contact modals ────────────────────────────────────────────
 
   void _showAddContactModal() {
     final nameCtrl = TextEditingController();
@@ -632,7 +715,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
                           _showSnack(msg, color: Colors.redAccent);
                           return;
                         }
-                        _contactBox.add(Contact(name: name, phones: [phone], createdAt: DateTime.now()));
+                        _contactBox.add(Contact(
+                          name: name,
+                          phones: [phone],
+                          createdAt: DateTime.now(),
+                          studentId: null,
+                          isDeleted: false,
+                        ));
                         _loadContacts();
                         Navigator.pop(context);
                       },
@@ -707,7 +796,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
                           return;
                         }
                         final phones = List<String>.from(contact.phones)..add(p);
-                        _updateContact(contact, Contact(name: contact.name, phones: phones, createdAt: contact.createdAt));
+                        _updateContact(contact, Contact(
+                          name: contact.name,
+                          phones: phones,
+                          createdAt: contact.createdAt,
+                          studentId: contact.studentId,
+                          isDeleted: false,
+                        ));
                         Navigator.pop(context);
                       },
                     ),
@@ -823,7 +918,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
                           return;
                         }
                         final phones = [p1, if (p2.isNotEmpty && old.phones.length > 1) p2];
-                        _updateContact(old, Contact(name: name, phones: phones, createdAt: old.createdAt));
+                        _updateContact(old, Contact(
+                          name: name,
+                          phones: phones,
+                          createdAt: old.createdAt,
+                          studentId: old.studentId,
+                          isDeleted: false,
+                        ));
                         Navigator.pop(context);
                       },
                     ),
@@ -861,7 +962,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
                 Navigator.pop(context);
                 return;
               }
-              _updateContact(contact, Contact(name: contact.name, phones: phones, createdAt: contact.createdAt));
+              _updateContact(contact, Contact(
+                name: contact.name,
+                phones: phones,
+                createdAt: contact.createdAt,
+                studentId: contact.studentId,
+                isDeleted: false,
+              ));
               Navigator.pop(context);
               Navigator.pop(modalCtx);
             },
@@ -949,8 +1056,11 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete Contact?', style: TextStyle(color: Colors.white)),
         content: Text(
-          'Are you sure you want to delete ${contact.name}?',
-          style: TextStyle(color: Colors.white.withValues(alpha: 0.85)),
+          'Are you sure you want to permanently delete ${contact.name}?',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.85),
+            fontWeight: FontWeight.bold,
+          ),
         ),
         actions: [
           TextButton(
@@ -958,20 +1068,33 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
             child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
           ),
           TextButton(
-            onPressed: () {
-              final idx = _contactBox.values.toList().indexOf(contact);
-              if (idx != -1) _contactBox.deleteAt(idx);
-              _loadContacts();
+            onPressed: () async {
               Navigator.pop(context);
+
+              if (contact.studentId != null) {
+                try {
+                  await ApiClient.instance.deleteStudent(contact.studentId!);
+                } catch (e) {
+                  if (mounted) _showSnack('Cloud delete failed: $e', color: Colors.redAccent);
+                }
+              }
+
+              final idx = _contactBox.values.toList().indexOf(contact);
+              if (idx != -1) {
+                await _contactBox.deleteAt(idx);
+              }
+              _loadContacts();
+              if (mounted) _showSnack('Contact permanently deleted', color: Colors.greenAccent);
             },
-            child: const Text('Delete', style: TextStyle(color: Colors.redAccent)),
+            child: const Text(
+              'Delete Permanently',
+              style: TextStyle(color: Colors.redAccent),
+            ),
           ),
         ],
       ),
     );
   }
-
-  // ── Helpers ───────────────────────────────────────────────────
 
   void _updateContact(Contact old, Contact updated) {
     final idx = _contactBox.values.toList().indexOf(old);
@@ -1057,7 +1180,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
     return DateFormat('MMM d').format(dt);
   }
 
-  // ─── Build ─────────────────────────────────────────────────────
+  void _closeMenu() {
+    if (!_menuOpen) return;
+    _menuAnimController.reverse().then((_) {
+      _removeOverlay();
+      if (mounted) setState(() => _menuOpen = false);
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1167,8 +1296,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
   }
 }
 
-// ─── Contact card widget (styled like session cards) ──────────
-
 class _ContactCard extends StatelessWidget {
   final Contact contact;
   final VoidCallback onTap;
@@ -1188,9 +1315,8 @@ class _ContactCard extends StatelessWidget {
       key: ValueKey(contact.hashCode),
       direction: DismissDirection.endToStart,
       confirmDismiss: (_) async {
-        return true;
+        return false;
       },
-      onDismissed: (_) => onDelete(),
       background: Container(
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
@@ -1288,8 +1414,6 @@ class _ContactCard extends StatelessWidget {
     );
   }
 }
-
-// ─── Contact picker sheet (restyled) ───────────────────────────
 
 class _ContactPickerSheet extends StatefulWidget {
   final List<fc.Contact> deviceContacts;

@@ -1,4 +1,4 @@
-import 'package:hive_flutter/hive_flutter.dart';
+import 'package:hive/hive.dart';
 
 part 'contact.g.dart';
 
@@ -13,9 +13,17 @@ class Contact {
   @HiveField(2)
   final DateTime createdAt;
 
+  @HiveField(3)
+  int? studentId;
+
+  @HiveField(4)
+  bool isDeleted;
+
   Contact({
     required this.name,
     required this.phones,
-    required this.createdAt,
-  });
+    DateTime? createdAt,
+    this.studentId,
+    this.isDeleted = false,
+  }) : createdAt = createdAt ?? DateTime.now();
 }

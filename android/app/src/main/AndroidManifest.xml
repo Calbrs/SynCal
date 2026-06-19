@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.SEND_SMS" />
     <uses-permission android:name="android.permission.READ_CONTACTS" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
 
     <!-- For self‑update -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -17,7 +18,18 @@
     <!-- SIM selection (dual‑SIM) -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
-    <!-- Removed: READ_SMS, RECEIVE_SMS, READ_PHONE_NUMBERS, WAKE_LOCK, RECEIVE_BOOT_COMPLETED -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Exact-alarm scheduling for scheduled-message delivery. Declared use
+         case: user-set delivery times for scheduled SMS, analogous to a
+         reminder/calendar alarm — same category Play Console expects for
+         this permission. We still fall back to inexact alarms at runtime
+         if this is denied (see AlarmScheduler.kt), so the app degrades
+         gracefully rather than depending on it being granted. -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- Lets AlarmManager wake the device for due scheduled messages. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <uses-feature
         android:name="android.hardware.telephony"
@@ -48,6 +60,25 @@
             android:name=".SmsForegroundService"
             android:foregroundServiceType="remoteMessaging"
             android:exported="false" />
+
+        <!-- Wakes the app (via a short-lived headless Flutter engine) when
+             an alarm fires to check/send due scheduled messages. Does not
+             require MainActivity or the cached UI engine to be alive. -->
+        <receiver
+            android:name=".ScheduleAlarmReceiver"
+            android:exported="false" />
+
+        <!-- Restores the alarm schedule after device reboot (AlarmManager
+             entries do not survive a reboot) and checks for anything that
+             came due while the device was off. -->
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
 
         <meta-data
             android:name="flutterEmbedding"

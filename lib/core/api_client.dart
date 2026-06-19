@@ -20,11 +20,18 @@ class SyncedContact {
   final int studentId;
   final String name;
   final List<String> phones;
-  const SyncedContact({required this.studentId, required this.name, required this.phones});
+  final bool isDeleted;
+  const SyncedContact({
+    required this.studentId,
+    required this.name,
+    required this.phones,
+    this.isDeleted = false,
+  });
   factory SyncedContact.fromJson(Map<String, dynamic> json) => SyncedContact(
         studentId: json['student_id'] as int,
         name: json['student_name'] as String,
         phones: List<String>.from(json['phones'] as List),
+        isDeleted: json['is_deleted'] as bool? ?? false,
       );
 }
 
@@ -246,53 +253,89 @@ class ApiClient {
     await _savePendingReports(remaining);
   }
 
-  Future<ActiveLink?> getActiveLink() async {
-    final token = _sessionToken;
-    if (token == null) return null;
-    final response = await http
-        .post(
-          Uri.parse(ApiConfig.connectUrl),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({'action': 'get_link', 'token': token}),
-        )
-        .timeout(const Duration(seconds: 10));
-    if (response.statusCode == 200) {
-      final body = _decode(response);
-      if (body.containsKey('link_token')) {
-        return ActiveLink.fromJson(body);
-      }
-    }
-    return null;
-  }
-
-  Future<ActiveLink> generateLink(String linkType) async {
+  Future<void> deleteStudent(int studentId) async {
     final token = _sessionToken;
     if (token == null) throw ApiException('No session token. Please log in again.');
     final response = await http
         .post(
           Uri.parse(ApiConfig.connectUrl),
           headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({'action': 'generate_link', 'token': token, 'link_type': linkType}),
+          body: jsonEncode({
+            'action': 'delete_student',
+            'token': token,
+            'student_id': studentId,
+          }),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode != 200) {
+      final body = _decode(response);
+      throw ApiException(body['message'] as String? ?? 'Failed to delete student');
+    }
+  }
+
+  Future<ActiveLink?> getActiveLink() async {
+    final user = linkedUser;
+    if (user == null) return null;
+    final url = Uri.parse('${ApiConfig.baseUrl}/api/links?cr_id=${user.id}');
+    try {
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+      if (response.statusCode == 200) {
+        final body = _decode(response);
+        final linkData = body['activeLink'] as Map<String, dynamic>?;
+        if (linkData != null) {
+          return ActiveLink(
+            linkToken: linkData['link_token'] as String,
+            linkType: linkData['link_type'] as String,
+            expiresAt: linkData['expires_at'] as String,
+            crId: linkData['cr_id'] as int,
+            syncalId: linkData['syncal_id'] as String,
+          );
+        }
+        return null;
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  Future<ActiveLink> generateLink(String linkType) async {
+    final user = linkedUser;
+    if (user == null) throw ApiException('No linked account');
+    final url = Uri.parse('${ApiConfig.baseUrl}/api/links');
+    final response = await http
+        .post(
+          url,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'cr_id': user.id,
+            'syncal_id': user.syncalId,
+            'link_type': linkType,
+          }),
         )
         .timeout(const Duration(seconds: 10));
     final body = _decode(response);
-    if (response.statusCode == 200) {
-      return ActiveLink.fromJson(body);
+    if (response.statusCode == 201 || response.statusCode == 200) {
+      final token = body['link_token'] as String?;
+      final expiresAt = body['expires_at'] as String?;
+      if (token == null || expiresAt == null) {
+        throw ApiException('Invalid response from server');
+      }
+      return ActiveLink(
+        linkToken: token,
+        linkType: linkType,
+        expiresAt: expiresAt,
+        crId: user.id,
+        syncalId: user.syncalId,
+      );
     } else {
       throw ApiException(body['message'] as String? ?? 'Failed to generate link');
     }
   }
 
   Future<void> deleteLink(String linkToken) async {
-    final token = _sessionToken;
-    if (token == null) throw ApiException('No session token. Please log in again.');
-    final response = await http
-        .post(
-          Uri.parse(ApiConfig.connectUrl),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({'action': 'delete_link', 'token': token, 'link_token': linkToken}),
-        )
-        .timeout(const Duration(seconds: 10));
+    final url = Uri.parse('${ApiConfig.baseUrl}/api/links?token=$linkToken');
+    final response = await http.delete(url).timeout(const Duration(seconds: 10));
     if (response.statusCode != 200) {
       final body = _decode(response);
       throw ApiException(body['message'] as String? ?? 'Failed to delete link');
