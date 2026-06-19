@@ -3,4 +3,6 @@
     <external-files-path name="update_apk" path="." />
     <external-path name="external_files" path="." />
     <files-path name="internal_files" path="." />
+    <!-- Add this: allows access to the whole app internal storage -->
+    <root-path name="root" path="." />
 </paths>
