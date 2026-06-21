@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:workmanager/workmanager.dart';
 import '../root/models/contact.dart';
@@ -11,17 +10,16 @@ import 'sms_gateway_service.dart';
 
 const String _tag = 'BackgroundService';
 const String backgroundTaskName = 'syncScheduledMessages';
+const String oneOffTaskName = 'syncOneOffScheduledMessages';
 
 /// Workmanager callback — runs in a SEPARATE isolate with NO access to the
 /// main isolate's singletons. We therefore boot Hive ourselves (same pattern
 /// as the headless AlarmManager entrypoint) and process due schedules
-/// directly. This fires at most every 15 minutes and serves as the backup
-/// delivery path when AlarmManager is blocked by an aggressive OEM battery
-/// manager (e.g. Transsion XOS without Autostart enabled).
+/// directly.
 @pragma('vm:entry-point')
 void callbackDispatcher() {
   Workmanager().executeTask((task, inputData) async {
-    if (task != backgroundTaskName) return false;
+    if (task != backgroundTaskName && task != oneOffTaskName) return false;
 
     AppLogger.info(_tag, 'Workmanager safety-net fired — processing due schedules.');
 
@@ -97,21 +95,33 @@ class BackgroundService {
   }
 
   /// Registers a native AlarmManager wake-up for [scheduledTime].
-  /// Primary delivery path — works even after app is swiped away or device reboots.
+  /// Primary delivery path — schedules a one-off WorkManager task to run when due.
   static Future<void> scheduleAt(DateTime scheduledTime) async {
+    final delay = scheduledTime.difference(DateTime.now());
+    final delayDuration = delay.isNegative ? Duration.zero : delay;
     try {
-      await SmsGatewayService.scheduleAlarm(scheduledTime);
-      AppLogger.info(_tag, 'Native alarm scheduled for $scheduledTime');
-    } on PlatformException catch (e) {
-      AppLogger.error(_tag, 'Failed to schedule native alarm: ${e.message}');
+      await Workmanager().registerOneOffTask(
+        oneOffTaskName,
+        oneOffTaskName,
+        initialDelay: delayDuration,
+        constraints: Constraints(
+          networkType: NetworkType.notRequired,
+          requiresBatteryNotLow: false,
+        ),
+        outOfQuotaPolicy: OutOfQuotaPolicy.runAsNonExpeditedWorkRequest,
+      );
+      AppLogger.info(_tag, 'Workmanager one-off task registered for $scheduledTime (delay: $delayDuration)');
+    } catch (e) {
+      AppLogger.error(_tag, 'Failed to schedule Workmanager one-off task: $e');
     }
   }
 
   static Future<void> cancelAlarm() async {
     try {
-      await SmsGatewayService.cancelAlarm();
-    } on PlatformException catch (e) {
-      AppLogger.error(_tag, 'Failed to cancel native alarm: ${e.message}');
+      await Workmanager().cancelByUniqueName(oneOffTaskName);
+      AppLogger.info(_tag, 'Workmanager one-off task cancelled');
+    } catch (e) {
+      AppLogger.error(_tag, 'Failed to cancel Workmanager one-off task: $e');
     }
   }
 
@@ -130,16 +140,12 @@ class BackgroundService {
 
   // ---- Permission helpers (called from UI/onboarding) ----
 
-  /// Returns true when all three background-execution permissions are granted:
-  ///   1. Exact alarm permission (Android 12+)
-  ///   2. Battery optimization whitelist
-  /// Note: Autostart cannot be checked programmatically on OEM ROMs.
+  /// Since we shifted to WorkManager and removed restricted permissions to comply with PlayStore policies,
+  /// all checks return true to bypass warning/blocking states, while maintaining support for OEM autostart.
   static Future<BackgroundPermissionStatus> checkPermissions() async {
-    final canExact = await SmsGatewayService.canScheduleExactAlarms();
-    final ignoringBattery = await SmsGatewayService.isIgnoringBatteryOptimizations();
-    return BackgroundPermissionStatus(
-      canScheduleExactAlarms: canExact,
-      isIgnoringBatteryOptimizations: ignoringBattery,
+    return const BackgroundPermissionStatus(
+      canScheduleExactAlarms: true,
+      isIgnoringBatteryOptimizations: true,
     );
   }
 
@@ -149,7 +155,7 @@ class BackgroundService {
   }
 }
 
-/// Snapshot of background-execution permission state.
+/// Snapshot of background-execution permission state (stubbed to bypass PlayStore exact alarm and battery opt check).
 class BackgroundPermissionStatus {
   final bool canScheduleExactAlarms;
   final bool isIgnoringBatteryOptimizations;
@@ -159,9 +165,8 @@ class BackgroundPermissionStatus {
     required this.isIgnoringBatteryOptimizations,
   });
 
-  /// True only when BOTH checkable permissions are granted.
-  /// Autostart is excluded because it cannot be read programmatically.
-  bool get allGranted => canScheduleExactAlarms && isIgnoringBatteryOptimizations;
+  /// Always returns true since background scheduling is now exact-alarm-free.
+  bool get allGranted => true;
 
   @override
   String toString() =>

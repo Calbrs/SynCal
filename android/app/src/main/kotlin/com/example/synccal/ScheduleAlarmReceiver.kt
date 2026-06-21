@@ -74,6 +74,13 @@ class ScheduleAlarmReceiver : BroadcastReceiver() {
         watchdog.postDelayed(watchdogRunnable, WATCHDOG_TIMEOUT_MS)
 
         val channel = MethodChannel(engine.dartExecutor.binaryMessenger, HEADLESS_CHANNEL)
+        
+        // Register SMS platform channel on background engine so headless isolate can send SMS
+        val smsChannel = MethodChannel(engine.dartExecutor.binaryMessenger, "com.example.SynCal/sms")
+        val smsHandler = SmsMethodCallHandler(context)
+        smsChannel.setMethodCallHandler(smsHandler)
+        SmsStatusTracker.setChannel(smsChannel)
+
         channel.setMethodCallHandler { call, result ->
             if (call.method == "headlessTaskComplete") {
                 Log.d(TAG, "Headless task signaled completion")
