@@ -88,7 +88,7 @@ class _BackgroundPermissionPromptState
       decoration: BoxDecoration(
         color: const Color(0xFF18181B), // zinc900
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.orange.withOpacity(0.3), width: 1),
+        border: Border.all(color: Colors.orange.withValues(alpha: 0.3), width: 1),
       ),
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -190,7 +190,7 @@ class _PermissionTile extends StatelessWidget {
           Expanded(
             child: Text(
               label,
-              style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.9)),
+              style: TextStyle(fontSize: 13, color: Colors.white.withValues(alpha: 0.9)),
             ),
           ),
           if (isGranted)
@@ -375,7 +375,7 @@ class _SheetTile extends StatelessWidget {
     final isGranted = granted == true;
     final isUnknown = granted == null;
 
-    final AccentColor = isGranted
+    final accentColor = isGranted
         ? Colors.greenAccent
         : isUnknown
             ? Colors.orangeAccent
@@ -384,7 +384,7 @@ class _SheetTile extends StatelessWidget {
     return Container(
       decoration: BoxDecoration(
         border: Border.all(
-          color: AccentColor.withOpacity(0.3),
+          color: accentColor.withValues(alpha: 0.3),
           width: 1,
         ),
         borderRadius: BorderRadius.circular(12),
@@ -395,7 +395,7 @@ class _SheetTile extends StatelessWidget {
         child: ListTile(
           leading: Icon(
             icon,
-            color: AccentColor,
+            color: accentColor,
           ),
           title: Text(
             title,

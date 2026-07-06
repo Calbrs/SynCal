@@ -7,7 +7,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:SynCal/main.dart';
+import 'package:syn_cal/main.dart';
 
 void main() {
   testWidgets('SynCal home route smoke test', (WidgetTester tester) async {

@@ -63,10 +63,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
   static const Color zinc900 = Color(0xFF18181B);
   static const Color zinc800 = Color(0xFF27272A);
   static const Color zinc700 = Color(0xFF3F3F46);
-  static const Color zinc600 = Color(0xFF52525B);
   static const Color zinc500 = Color(0xFF71717A);
   static const Color zinc400 = Color(0xFFA1A1AA);
-  static const Color zinc300 = Color(0xFFD4D4D8);
 
   final _searchController = TextEditingController();
   final _contactBox = Hive.box<Contact>('contacts');
@@ -550,7 +548,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
         contacts = _contactBox.values
             .where((c) => !c.isDeleted)
             .toList()
-          ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
       });
 
   void _search(String value) {
@@ -566,7 +564,7 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
               (c.name.toLowerCase().contains(q) ||
                   c.phones.any((p) => p.toLowerCase().contains(q))))
           .toList()
-        ..sort((a, b) => (b.createdAt ?? DateTime(0)).compareTo(a.createdAt ?? DateTime(0)));
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     });
   }
 
@@ -580,16 +578,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
       }
     }
     return null;
-  }
-
-  void _onAddNewContact() {
-    _closeMenu();
-    Future.delayed(const Duration(milliseconds: 220), _showAddContactModal);
-  }
-
-  void _onSelectFromPhone() {
-    _closeMenu();
-    Future.delayed(const Duration(milliseconds: 220), _showContactPickerDrawer);
   }
 
   void _showContactPickerDrawer() async {
@@ -1457,7 +1445,6 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
   Widget build(BuildContext context) {
     final count = _selected.length;
     const Color zinc900 = Color(0xFF18181B);
-    const Color zinc800 = Color(0xFF27272A);
     const Color zinc700 = Color(0xFF3F3F46);
     const Color zinc500 = Color(0xFF71717A);
     const Color zinc400 = Color(0xFFA1A1AA);

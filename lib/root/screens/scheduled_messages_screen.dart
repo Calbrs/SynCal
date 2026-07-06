@@ -13,7 +13,6 @@ import '../../services/background_permission_prompt.dart';
 class _Palette {
   static const Color bg = Color(0xFF1C1C1E);
   static const Color muted = Color(0xFF71717A);
-  static const Color mutedLight = Color(0xFFA1A1AA);
 }
 
 class ScheduledMessagesScreen extends StatefulWidget {

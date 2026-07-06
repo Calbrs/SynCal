@@ -235,14 +235,18 @@ class _LinkManagementScreenState extends State<LinkManagementScreen> {
                               : () async {
                                   setModalState(() => generating = true);
                                   try {
-                                    final newLink = await ApiClient.instance.generateLink(linkType);
+                                    await ApiClient.instance.generateLink(linkType);
                                     if (mounted) {
                                       setModalState(() => generating = false);
-                                      Navigator.pop(ctx);
+                                      if (ctx.mounted) {
+                                        Navigator.pop(ctx);
+                                      }
                                       _loadLinks();
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        const SnackBar(content: Text('Link generated successfully')),
-                                      );
+                                      if (context.mounted) {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(content: Text('Link generated successfully')),
+                                        );
+                                      }
                                     }
                                   } catch (e) {
                                     if (mounted) {

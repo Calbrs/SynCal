@@ -55,11 +55,9 @@ class _ShimmerLoadingState extends State<ShimmerLoading> with SingleTickerProvid
 class _Palette {
   static const Color bg = Color(0xFF1C1C1E);
   static const Color surface = Color(0xFF18181B);
-  static const Color surfaceAlt = Color(0xFF27272A);
   static const Color hairline = Color(0xFF3F3F46);
   static const Color muted = Color(0xFF71717A);
   static const Color mutedLight = Color(0xFFA1A1AA);
-  static const Color accent = Colors.white;
 }
 
 class HomeScreen extends StatefulWidget {
@@ -290,7 +288,6 @@ class _HomeScreenState extends State<HomeScreen> {
               return ValueListenableBuilder<Box<Contact>>(
                 valueListenable: Hive.box<Contact>('contacts').listenable(),
                 builder: (context, contactBox, _) {
-                  final hasContacts = contactBox.values.any((c) => c.phones.isNotEmpty);
 
                   return CustomScrollView(
                     physics: const BouncingScrollPhysics(

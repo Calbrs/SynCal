@@ -41,7 +41,6 @@ class _SynCalAuthPageState extends State<SynCalAuthPage>
   static const Color zinc600 = Color(0xFF52525B);
   static const Color zinc500 = Color(0xFF71717A);
   static const Color zinc400 = Color(0xFFA1A1AA);
-  static const Color zinc300 = Color(0xFFD4D4D8);
 
   @override
   void initState() {

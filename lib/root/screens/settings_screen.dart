@@ -31,7 +31,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   String _appVersion = '1.0.0';
-  String _SynCalId = 'Not linked';
+  String _synCalId = 'Not linked';
   String _username = '';
   bool _checkingUpdate = false;
   String? _latestVersion;
@@ -101,7 +101,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void _loadUserInfo() {
     final linkedUser = ApiClient.instance.linkedUser;
     setState(() {
-      _SynCalId = linkedUser?.syncalId ?? 'Not linked';
+      _synCalId = linkedUser?.syncalId ?? 'Not linked';
       _username = linkedUser?.username ?? '';
     });
   }
@@ -531,7 +531,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                                                 try {
                                                   final success = await ApiClient.instance.reportProblem(desc);
-                                                  if (mounted) {
+                                                  if (context.mounted) {
                                                     ScaffoldMessenger.of(context).showSnackBar(
                                                       SnackBar(
                                                         content: Text(
@@ -544,7 +544,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                                     );
                                                   }
                                                 } catch (e) {
-                                                  if (mounted) {
+                                                  if (context.mounted) {
                                                     ScaffoldMessenger.of(context).showSnackBar(
                                                       SnackBar(
                                                         content: Text('Failed to report: $e'),
@@ -613,7 +613,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           _settingsTile(
                             icon: Icons.fingerprint_rounded,
                             title: 'SynCal ID',
-                            subtitle: _SynCalId,
+                            subtitle: _synCalId,
                             onTap: _showProfileDrawer,
                           ),
                         ]),
@@ -637,7 +637,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             trailing: Switch(
                               value: _unkillableMode,
                               onChanged: _toggleUnkillableMode,
-                              activeColor: Colors.greenAccent,
+                              activeThumbColor: Colors.greenAccent,
                             ),
                           ),
                         ]),

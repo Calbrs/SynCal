@@ -178,7 +178,7 @@ class SmsGatewayService {
   /// after the user returns to the app).
   ///
   /// Requires in AndroidManifest.xml:
-  ///   <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+  ///   `<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>`
   static Future<bool> requestIgnoreBatteryOptimizations() async =>
       await _channel.invokeMethod<bool>('requestIgnoreBatteryOptimizations') ?? false;
 
