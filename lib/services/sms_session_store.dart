@@ -24,17 +24,19 @@ class SmsSessionStore extends ChangeNotifier {
 
   Completer<void>? _loadCompleter;
 
-  /// True when this instance is running inside a headless FlutterEngine
-  /// (AlarmManager callback or Workmanager task). In headless context,
-  /// MethodChannel calls to MainActivity are unavailable — sendSms,
-  /// startForegroundService, stopForegroundService, getSmsStatus, etc.
-  /// will all throw MissingPluginException.
+  /// True when the SMS MethodChannel itself is unavailable (i.e. neither
+  /// MainActivity nor a headless engine with the SMS channel registered is
+  /// present). Only set to true when sendSms() throws MissingPluginException.
   ///
-  /// We detect headless context by checking whether SmsGatewayService
-  /// could successfully initialise its channel listener. If any channel
-  /// call throws MissingPluginException we set this flag and skip all
-  /// subsequent native calls.
-  bool _isHeadlessContext = false;
+  /// NOTE: This is intentionally separate from _canStartForegroundService.
+  /// The ScheduleAlarmReceiver headless engine DOES register the SMS channel,
+  /// so SMS sending is possible in that context even though the foreground
+  /// service channel is not available.
+  bool _isSmsChannelUnavailable = false;
+
+  /// True when the foreground service channel is unavailable (expected in any
+  /// headless context). Does NOT block SMS sending.
+  bool _canStartForegroundService = true;
 
   SmsSessionStore._() {
     _loadCompleter = Completer<void>();
@@ -60,11 +62,10 @@ class SmsSessionStore extends ChangeNotifier {
       if (_loadCompleter != null && !_loadCompleter!.isCompleted) {
         _loadCompleter!.complete();
       }
-      // Only resume sessions from the UI isolate — headless context cannot
-      // send SMS (no MainActivity MethodChannel handler). The UI isolate will
-      // resume any interrupted session when the user opens the app, or the
-      // next AlarmManager tick will handle new scheduled messages.
-      if (!_isHeadlessContext) {
+      // Only resume sessions from the UI isolate — the headless engine will
+      // handle its own scheduled sends. The UI isolate resumes any session that
+      // was saved-but-not-sent (e.g. from a previous headless SMS failure).
+      if (!_isSmsChannelUnavailable) {
         _resumeSessions();
       }
     } catch (e) {
@@ -101,48 +102,65 @@ class SmsSessionStore extends ChangeNotifier {
   // ---- Public helper ----
 
   /// Returns the first session associated with the given [scheduleId], or null
-  /// if no such session exists. Used by ScheduledMessageStore to detect whether
-  /// the other isolate already created a session for a given schedule so we
-  /// don't create a duplicate.
+  /// if no such session exists.
+  ///
+  /// IMPORTANT: This checks the Hive box on disk directly (not the in-memory
+  /// list) to ensure cross-isolate visibility. Both the UI isolate and the
+  /// headless alarm isolate share the same Hive files on disk. If the headless
+  /// isolate wrote a session and the UI isolate's in-memory list hasn't
+  /// reloaded yet, this will still find it — preventing duplicate sessions.
   SmsSession? sessionForSchedule(String scheduleId) {
+    // Check disk first for cross-isolate safety
+    try {
+      final box = Hive.box<SmsSession>(_sessionsBoxName);
+      final fromDisk = box.values.firstWhereOrNull((s) => s.scheduleId == scheduleId);
+      if (fromDisk != null) return fromDisk;
+    } catch (_) {
+      // Box not open yet — fall through to in-memory check
+    }
     return sessions.firstWhereOrNull((s) => s.scheduleId == scheduleId);
   }
 
   // ---- Native service helpers (safe to call from any context) ----
 
-  /// Starts the foreground service. Silently skipped in headless context.
+  /// Starts the foreground service. Silently skipped when foreground service
+  /// channel is unavailable (headless context). Does NOT affect SMS sending.
   Future<void> _startForegroundService() async {
-    if (_isHeadlessContext) return;
+    if (!_canStartForegroundService) return;
     try {
       await SmsGatewayService.startForegroundService();
     } on MissingPluginException {
-      _isHeadlessContext = true;
-      AppLogger.info(_tag, 'startForegroundService: headless context detected — skipped.');
+      // Expected in headless context — foreground service channel not registered.
+      // SMS channel is still available; only skip foreground service.
+      _canStartForegroundService = false;
+      AppLogger.info(_tag, 'startForegroundService: not available in this context — skipped (SMS will still be sent).');
     } on PlatformException catch (e) {
       AppLogger.error(_tag, 'startForegroundService error: ${e.message}');
     }
   }
 
-  /// Stops the foreground service. Silently skipped in headless context.
+  /// Stops the foreground service. Silently skipped when unavailable.
   Future<void> _stopForegroundService() async {
-    if (_isHeadlessContext) return;
+    if (!_canStartForegroundService) return;
     try {
       await SmsGatewayService.stopForegroundService();
     } on MissingPluginException {
-      _isHeadlessContext = true;
-      AppLogger.info(_tag, 'stopForegroundService: headless context detected — skipped.');
+      _canStartForegroundService = false;
+      AppLogger.info(_tag, 'stopForegroundService: not available in this context — skipped.');
     } on PlatformException catch (e) {
       AppLogger.error(_tag, 'stopForegroundService error: ${e.message}');
     }
   }
 
-  /// Sends an SMS. Returns null and marks recipient as failed in headless context.
+  /// Sends an SMS via the native channel. Returns null only if the SMS channel
+  /// itself is unavailable (extremely rare — only if neither MainActivity nor
+  /// the headless engine channel is active in this process).
   Future<SmsResult?> _sendSms({
     required String to,
     required String message,
     required int simSlot,
   }) async {
-    if (_isHeadlessContext) return null;
+    if (_isSmsChannelUnavailable) return null;
     try {
       return await SmsGatewayService.sendSms(
         to: to,
@@ -150,8 +168,11 @@ class SmsSessionStore extends ChangeNotifier {
         simSlot: simSlot,
       );
     } on MissingPluginException {
-      _isHeadlessContext = true;
-      AppLogger.info(_tag, 'sendSms: headless context detected — cannot send SMS without MainActivity.');
+      // The SMS channel itself is not registered in this context.
+      // This should not happen in normal or headless-alarm contexts, but
+      // could happen in a Workmanager isolate where no channel is set up.
+      _isSmsChannelUnavailable = true;
+      AppLogger.warn(_tag, 'sendSms: SMS channel unavailable in this context — session deferred.');
       return null;
     } on PlatformException catch (e) {
       AppLogger.error(_tag, 'sendSms PlatformException: ${e.message}');
@@ -159,13 +180,13 @@ class SmsSessionStore extends ChangeNotifier {
     }
   }
 
-  /// Gets SMS status. Returns null silently in headless context.
+  /// Gets SMS status. Returns null silently if unavailable.
   Future<SmsResult?> _getSmsStatus(String msgId) async {
-    if (_isHeadlessContext) return null;
+    if (_isSmsChannelUnavailable) return null;
     try {
       return await SmsGatewayService.getSmsStatus(msgId);
     } on MissingPluginException {
-      _isHeadlessContext = true;
+      _isSmsChannelUnavailable = true;
       return null;
     } catch (_) {
       return null;
@@ -183,10 +204,25 @@ class SmsSessionStore extends ChangeNotifier {
     final box = Hive.box<Contact>('contacts');
     final recipients = <SmsRecipient>[];
 
+    // Deduplicate by contact name: if the same name appears with multiple
+    // phone numbers, only the FIRST number is used. This prevents a contact
+    // with two stored numbers from receiving the same SMS twice.
+    final seenNames = <String>{};
+
     for (final contact in box.values) {
-      for (final phone in contact.phones) {
-        recipients.add(SmsRecipient(name: contact.name, phone: phone));
+      if (contact.phones.isEmpty) continue;
+      final normalizedName = contact.name.trim().toLowerCase();
+      if (seenNames.contains(normalizedName)) {
+        AppLogger.info(
+          _tag,
+          'startSession: skipping duplicate name "${contact.name}" '
+          '(already added first number for this contact).',
+        );
+        continue;
       }
+      seenNames.add(normalizedName);
+      // Use only the first phone number for this contact name.
+      recipients.add(SmsRecipient(name: contact.name, phone: contact.phones[0]));
     }
 
     if (recipients.isEmpty) {
@@ -203,17 +239,19 @@ class SmsSessionStore extends ChangeNotifier {
     );
   }
 
+
   /// Start a session with a pre-built recipient list.
   ///
   /// [scheduleId] — when provided, the session is linked to a scheduled
   /// message. Before creating a new session we check whether a session for
-  /// this [scheduleId] already exists (created by the sibling isolate).  If
+  /// this [scheduleId] already exists (created by the sibling isolate). If
   /// it does we log and return without creating a duplicate.
   ///
   /// Called both from UI (via ScheduledMessageStore.processDueSchedules)
-  /// and from the headless alarm entrypoint. In headless context the session
-  /// is saved to Hive but SMS sending is skipped — the UI isolate will resume
-  /// it when the app is next opened, or AlarmManager will retry.
+  /// and from the headless alarm entrypoint. In headless context the SMS
+  /// channel IS available (registered by ScheduleAlarmReceiver), so sending
+  /// proceeds normally. The foreground service is skipped in headless context
+  /// but that does not affect SMS delivery.
   Future<void> startSessionWithRecipients({
     required String message,
     required int simSlot,
@@ -226,11 +264,10 @@ class SmsSessionStore extends ChangeNotifier {
       return;
     }
 
-    // FIX (Tatizo 1): If a scheduleId is provided, check whether a session
-    // for this schedule already exists (created by the other isolate).
-    // Both isolates share the same Hive box — the session written by the
-    // first isolate will be in our in-memory list because awaitLoaded()
-    // was called before reaching here.
+    // If a scheduleId is provided, check whether a session for this schedule
+    // already exists (created by the other isolate). Both isolates share the
+    // same Hive box — the session written by the first isolate will be in our
+    // in-memory list because awaitLoaded() was called before reaching here.
     if (scheduleId != null) {
       final existing = sessionForSchedule(scheduleId);
       if (existing != null) {
@@ -250,7 +287,7 @@ class SmsSessionStore extends ChangeNotifier {
       simSlot: simSlot,
       simLabel: simLabel,
       recipients: recipients,
-      scheduleId: scheduleId, // store the link so sessionForSchedule() works
+      scheduleId: scheduleId,
     );
 
     sessions.insert(0, session);
@@ -263,18 +300,9 @@ class SmsSessionStore extends ChangeNotifier {
       'SIM: $simLabel${scheduleId != null ? ', scheduleId: $scheduleId' : ''}',
     );
 
-    if (_isHeadlessContext) {
-      // Cannot send SMS in headless context — save session as pending so the
-      // UI isolate resumes it when the app opens. The schedule is already
-      // marked as sent by ScheduledMessageStore (session creation = delivery
-      // attempt). The session itself will be retried by _resumeSessions().
-      AppLogger.info(
-        _tag,
-        'Session ${session.id}: headless context — SMS deferred to UI isolate.',
-      );
-      return;
-    }
-
+    // Start the foreground service if available (UI context).
+    // If unavailable (headless context), this is silently skipped and SMS
+    // sending continues normally via the headless engine's SMS channel.
     await _startForegroundService();
     await _runPass(session);
   }
@@ -292,14 +320,12 @@ class SmsSessionStore extends ChangeNotifier {
 
     bool hasTargets = false;
     for (final r in session.recipients) {
+      // Only retry hard send failures — NOT sentNotDelivered.
+      // sentNotDelivered means the SMS reached the carrier; retrying it
+      // would cause a duplicate message (especially on Samsung/AOSP where
+      // delivery receipts are often never sent).
       if (r.status == SmsRecipientStatus.failed &&
           r.retryCount < SmsSession.maxSendRetries) {
-        r.status = SmsRecipientStatus.pending;
-        r.error = null;
-        r.msgId = null;
-        hasTargets = true;
-      } else if (r.status == SmsRecipientStatus.sentNotDelivered &&
-          (r.deliveryRetryCount ?? 0) < SmsSession.maxDeliveryRetries) {
         r.status = SmsRecipientStatus.pending;
         r.error = null;
         r.msgId = null;
@@ -322,8 +348,10 @@ class SmsSessionStore extends ChangeNotifier {
 
   Future<void> _runPass(SmsSession session) async {
     if (_isProcessing) return;
-    if (_isHeadlessContext) {
-      AppLogger.info(_tag, '_runPass: headless context — skipping SMS sending.');
+    if (_isSmsChannelUnavailable) {
+      // SMS channel is not available in this isolate context. Save the session
+      // as-is so the UI isolate can resume it when the app opens.
+      AppLogger.info(_tag, '_runPass: SMS channel unavailable — session ${session.id} deferred to UI isolate.');
       return;
     }
     _isProcessing = true;
@@ -332,18 +360,21 @@ class SmsSessionStore extends ChangeNotifier {
       while (true) {
         List<SmsRecipient> targets;
 
+        // Do NOT include sentNotDelivered in retry targets.
+        // Delivery receipts are optional — many SMS apps (Samsung Messages,
+        // AOSP Messaging) never send them. If the OS confirmed the message
+        // was handed to the carrier (sent=true), the SMS went out. Retrying
+        // based on missing delivery reports causes 4-6 duplicate messages.
         if (session.retryPass == 0) {
           targets = session.recipients
               .where((r) => r.status == SmsRecipientStatus.pending)
               .toList();
         } else {
           targets = session.recipients.where((r) {
+            // Only retry hard send failures (OS rejected the send call).
             if (r.status == SmsRecipientStatus.failed &&
                 r.retryCount < SmsSession.maxSendRetries) { return true; }
-            if (r.status == SmsRecipientStatus.sentNotDelivered &&
-                (r.deliveryRetryCount ?? 0) < SmsSession.maxDeliveryRetries) {
-              return true;
-            }
+            // sentNotDelivered = SMS reached the carrier; do NOT retry.
             return false;
           }).toList();
         }
@@ -383,9 +414,10 @@ class SmsSessionStore extends ChangeNotifier {
                 _tag,
                 'Queued → ${recipient.name} (${recipient.phone}) msgId:${result.msgId}',
               );
-            } else if (_isHeadlessContext) {
-              // sendSms returned null because we're headless — stop loop
-              AppLogger.info(_tag, 'Headless detected mid-pass — aborting send loop.');
+            } else if (_isSmsChannelUnavailable) {
+              // SMS channel became unavailable mid-pass — stop and defer.
+              AppLogger.info(_tag, 'SMS channel unavailable mid-pass — aborting send loop, session deferred.');
+              await _saveSessions();
               return;
             }
           } catch (e) {
@@ -402,20 +434,17 @@ class SmsSessionStore extends ChangeNotifier {
           await Future.delayed(const Duration(milliseconds: 1000));
         }
 
-        await _waitForPendingResults(session, timeout: const Duration(seconds: 30));
+        await _waitForPendingResults(session, timeout: const Duration(seconds: 15));
 
+        // Only retry on hard send failures. sentNotDelivered is treated as
+        // success — the SMS was handed to the carrier.
         final anyFailed = session.recipients.any(
           (r) =>
               r.status == SmsRecipientStatus.failed &&
               r.retryCount < SmsSession.maxSendRetries,
         );
-        final anyNotDelivered = session.recipients.any(
-          (r) =>
-              r.status == SmsRecipientStatus.sentNotDelivered &&
-              (r.deliveryRetryCount ?? 0) < SmsSession.maxDeliveryRetries,
-        );
 
-        if (!anyFailed && !anyNotDelivered) {
+        if (!anyFailed) {
           _closeSession(session);
           await _stopForegroundService();
           break;
@@ -441,7 +470,7 @@ class SmsSessionStore extends ChangeNotifier {
     SmsSession session, {
     required Duration timeout,
   }) async {
-    if (_isHeadlessContext) return;
+    if (_isSmsChannelUnavailable) return;
 
     final deadline = DateTime.now().add(timeout);
     while (DateTime.now().isBefore(deadline)) {
@@ -454,25 +483,49 @@ class SmsSessionStore extends ChangeNotifier {
         final status = await _getSmsStatus(r.msgId!);
         if (status == null) continue;
         if (status.sent == true) {
+          // OS confirmed the SMS was handed to the carrier.
+          // Mark as sent if delivery receipt arrived, sentNotDelivered otherwise.
+          // sentNotDelivered is treated as success — delivery receipts are
+          // optional and many SMS apps (Samsung, AOSP) never fire them.
           r.status = status.delivered == true
               ? SmsRecipientStatus.sent
               : SmsRecipientStatus.sentNotDelivered;
         } else if (status.sent == false) {
+          // OS explicitly rejected the send (e.g. no signal, no SIM).
+          // This is a true failure — eligible for 1 retry.
           r.status = SmsRecipientStatus.failed;
           r.error = status.sentError ?? 'Send failed';
           r.retryCount++;
         }
+        // If status.sent == null the broadcast hasn't arrived yet — keep waiting.
       }
       await _saveSessions();
       notifyListeners();
       await Future.delayed(const Duration(milliseconds: 1500));
     }
 
+    // Timeout reached. Classify remaining pending recipients:
+    //   • Has msgId  → OS accepted the send call; treat as sentNotDelivered
+    //                   (success) — the carrier just didn't confirm delivery.
+    //                   This prevents false "failed" on Samsung/AOSP where
+    //                   the delivery broadcast never fires.
+    //   • No msgId   → OS call never returned; this is a genuine failure.
     for (final r in session.recipients) {
-      if (r.status == SmsRecipientStatus.pending && r.msgId != null) {
+      if (r.status != SmsRecipientStatus.pending) continue;
+      if (r.msgId != null) {
+        // SMS was handed to the OS — assume it went out.
+        r.status = SmsRecipientStatus.sentNotDelivered;
+        r.error = null;
+        AppLogger.info(
+          _tag,
+          'Timeout: ${r.name} has msgId — treating as sentNotDelivered (sent, no delivery receipt).',
+        );
+      } else {
+        // OS never accepted the call — mark as failed (1 retry allowed).
         r.status = SmsRecipientStatus.failed;
-        r.error = 'Timeout waiting for confirmation';
+        r.error = 'No send confirmation received';
         r.retryCount++;
+        AppLogger.warn(_tag, 'Timeout: ${r.name} has no msgId — marking failed.');
       }
     }
     await _saveSessions();

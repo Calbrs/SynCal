@@ -57,8 +57,8 @@ class SmsSession extends HiveObject {
   /// a session for the same scheduled message.
   @HiveField(9) String? scheduleId;
 
-  static const int maxSendRetries = 3;
-  static const int maxDeliveryRetries = 2;
+  static const int maxSendRetries = 1;      // 1 retry max on hard send failure
+  static const int maxDeliveryRetries = 0;  // Do NOT re-send just because delivery receipt is missing
   static int get maxRetries => maxSendRetries;
 
   SmsSession({

@@ -19,6 +19,12 @@
 
     <!-- Lets AlarmManager wake the device for due scheduled messages. -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    
+    <!-- Required to schedule exact, reliable alarms on Android 12+ (API 31+) -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    
+    <!-- Required to request battery optimization whitelist so the OS doesn't kill the background process -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <uses-feature
         android:name="android.hardware.telephony"
@@ -27,7 +33,8 @@
     <application
         android:label="SynCal"
         android:name=".SynCalApplication"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:enableOnBackInvokedCallback="true">
 
         <activity
             android:name=".MainActivity"
@@ -58,10 +65,13 @@
 
         <!-- Restores the alarm schedule after device reboot (AlarmManager
              entries do not survive a reboot) and checks for anything that
-             came due while the device was off. -->
+             came due while the device was off.
+             IMPORTANT: exported="true" is required on Android 12+ (API 31+)
+             for receivers that handle system broadcasts like BOOT_COMPLETED.
+             Without this the OS silently drops the broadcast on modern devices. -->
         <receiver
             android:name=".BootReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />

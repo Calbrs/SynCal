@@ -7,7 +7,7 @@ import '../root/models/scheduled_message.dart';
 import '../root/models/sms_session.dart';
 import 'app_logger.dart';
 import 'sms_session_store.dart';
-import 'background_service.dart';
+import 'sms_gateway_service.dart';
 
 const String _tag = 'ScheduledMessageStore';
 const String _scheduleBoxName = 'scheduled_messages';
@@ -51,6 +51,8 @@ class ScheduledMessageStore extends ChangeNotifier {
       if (_loadCompleter != null && !_loadCompleter!.isCompleted) {
         _loadCompleter!.complete();
       }
+      // Sync any schedules that the native Kotlin layer sent while app was closed.
+      await _syncNativeState();
       await _autoDeleteExpired();
       await _scheduleNextAlarm();
     } catch (e) {
@@ -60,6 +62,55 @@ class ScheduledMessageStore extends ChangeNotifier {
       if (_loadCompleter != null && !_loadCompleter!.isCompleted) {
         _loadCompleter!.complete();
       }
+    }
+  }
+
+  /// Reads any schedules marked sent/failed by the native Kotlin layer
+  /// (while the app was closed) and updates Hive to match.
+  Future<void> _syncNativeState() async {
+    try {
+      final nativeStates = await SmsGatewayService.getSyncState();
+      if (nativeStates.isEmpty) return;
+      bool changed = false;
+      for (final state in nativeStates) {
+        final id = state['scheduleId'] ?? '';
+        final status = state['status'] ?? '';
+        if (id.isEmpty) continue;
+        final idx = schedules.indexWhere((s) => s.id == id);
+        if (idx == -1) continue;
+        final s = schedules[idx];
+        // Treat 'processing' as 'sent': if the app was killed while Kotlin was
+        // mid-send the SMS was already handed to the Android telephony stack.
+        if ((status == 'sent' || status == 'processing') && s.status == ScheduleStatus.pending) {
+          // Native layer sent this while app was closed — mark as sent in Hive.
+          schedules[idx] = s.copyWith(
+            status: ScheduleStatus.sent,
+            completedAt: DateTime.now(),
+            isActive: false,
+          );
+          AppLogger.info(_tag, '_syncNativeState: marked ${s.id} as sent (sent by Kotlin natively)');
+          // Clean up native store entry now that Hive is updated.
+          await SmsGatewayService.deleteScheduleFromNative(id);
+          changed = true;
+        } else if (status == 'failed' && s.status == ScheduleStatus.pending) {
+          schedules[idx] = s.copyWith(
+            status: ScheduleStatus.failed,
+            completedAt: DateTime.now(),
+            isActive: false,
+          );
+          AppLogger.info(_tag, '_syncNativeState: marked ${s.id} as failed (native Kotlin reported failure)');
+          await SmsGatewayService.deleteScheduleFromNative(id);
+          changed = true;
+        }
+      }
+      if (changed) {
+        await _saveSchedules();
+        notifyListeners();
+      }
+    } on MissingPluginException {
+      // Running in headless context — native sync channel not available, skip.
+    } catch (e) {
+      AppLogger.error(_tag, '_syncNativeState error: $e');
     }
   }
 
@@ -83,10 +134,16 @@ class ScheduledMessageStore extends ChangeNotifier {
     }
   }
 
-  /// Schedules the next native alarm. Safe to call from both the UI isolate
-  /// and the headless isolate — MissingPluginException is caught and ignored
-  /// silently in the headless context where no MethodChannel handler is
-  /// registered (the headless engine has no MainActivity backing it).
+  /// Schedules the next native AlarmManager alarm for the earliest pending
+  /// scheduled message. Uses setExactAndAllowWhileIdle so the alarm fires at
+  /// the scheduled time even in doze/battery-saver mode.
+  ///
+  /// Safe to call from both the UI isolate and the headless isolate.
+  /// In the headless isolate context, re-arming the next alarm may throw
+  /// MissingPluginException — this is silently ignored because the alarm
+  /// that triggered this headless run was already set by the UI isolate, and
+  /// after processing the Dart side will re-arm the alarm the next time the
+  /// UI isolate runs (or the 15-min WorkManager safety-net will catch it).
   Future<void> _scheduleNextAlarm() async {
     final pendingActive = schedules.where(
       (s) => s.isActive && s.status == ScheduleStatus.pending,
@@ -94,20 +151,25 @@ class ScheduledMessageStore extends ChangeNotifier {
 
     try {
       if (pendingActive.isEmpty) {
-        await BackgroundService.cancelAlarm();
+        // No more pending schedules — cancel the native alarm.
+        await SmsGatewayService.cancelAlarm();
         return;
       }
       pendingActive.sort((a, b) => a.scheduledTime.compareTo(b.scheduledTime));
       final next = pendingActive.first.scheduledTime;
-      await BackgroundService.scheduleAt(next);
+      // Use the native AlarmManager path (setExactAndAllowWhileIdle) for
+      // reliable exact-time delivery. WorkManager is only the 15-min safety-net.
+      await SmsGatewayService.scheduleAlarm(next);
+      AppLogger.info(_tag, '_scheduleNextAlarm: native alarm set for $next');
     } on MissingPluginException {
-      // Running inside a headless FlutterEngine — MethodChannel handlers
-      // are not registered here. This is expected and safe to ignore;
-      // the alarm was already set by the UI isolate before the app was killed,
-      // and the headless task itself was triggered by that alarm.
+      // Running inside a headless FlutterEngine where only the SMS channel is
+      // registered — the alarm scheduling channel (MainActivity) is not active.
+      // This is expected and safe: the UI isolate will re-arm the alarm the
+      // next time the app opens, and the 15-min safety-net covers the gap.
       AppLogger.info(
         _tag,
-        '_scheduleNextAlarm: skipped in headless context (MissingPluginException — expected).',
+        '_scheduleNextAlarm: skipped in headless context (expected) — '
+        'UI isolate will re-arm alarm on next open.',
       );
     } on PlatformException catch (e) {
       AppLogger.error(_tag, '_scheduleNextAlarm platform error: ${e.message}');
@@ -121,6 +183,8 @@ class ScheduledMessageStore extends ChangeNotifier {
     await _saveSchedules();
     notifyListeners();
     AppLogger.info(_tag, 'Added schedule: ${schedule.id}');
+    // Persist to native store so Kotlin can send SMS without booting Flutter.
+    await _persistToNative(schedule);
     await _scheduleNextAlarm();
   }
 
@@ -131,6 +195,12 @@ class ScheduledMessageStore extends ChangeNotifier {
       await _saveSchedules();
       notifyListeners();
       AppLogger.info(_tag, 'Updated schedule: ${updated.id}');
+      // Re-persist with updated data.
+      if (updated.isActive && updated.status == ScheduleStatus.pending) {
+        await _persistToNative(updated);
+      } else {
+        await SmsGatewayService.deleteScheduleFromNative(updated.id);
+      }
       await _scheduleNextAlarm();
     }
   }
@@ -140,6 +210,8 @@ class ScheduledMessageStore extends ChangeNotifier {
     await _saveSchedules();
     notifyListeners();
     AppLogger.info(_tag, 'Deleted schedule: $id');
+    // Remove from native store so alarm doesn't fire for deleted schedule.
+    await SmsGatewayService.deleteScheduleFromNative(id);
     await _scheduleNextAlarm();
   }
 
@@ -149,7 +221,51 @@ class ScheduledMessageStore extends ChangeNotifier {
     await _saveSchedules();
     notifyListeners();
     AppLogger.info(_tag, 'Toggled active for schedule: $id');
+    if (schedule.isActive && schedule.status == ScheduleStatus.pending) {
+      await _persistToNative(schedule);
+    } else {
+      // Disabled — remove from native store so it won't send.
+      await SmsGatewayService.deleteScheduleFromNative(id);
+    }
     await _scheduleNextAlarm();
+  }
+
+  /// Persists a schedule's data to the native Kotlin store so
+  /// ScheduleAlarmReceiver can send the SMS without booting a Flutter engine.
+  Future<void> _persistToNative(ScheduledMessage schedule) async {
+    try {
+      // Build recipients list from contacts box.
+      final contactBox = Hive.box<Contact>('contacts');
+      final recipients = <Map<String, String>>[];
+      for (final id in schedule.recipientIds) {
+        Contact? contact;
+        for (final c in contactBox.values) {
+          if (c.studentId != null && c.studentId.toString() == id) {
+            contact = c; break;
+          }
+        }
+        if (contact == null) {
+          final idx = contactBox.keys.toList().indexWhere((k) => k.toString() == id);
+          if (idx != -1) contact = contactBox.getAt(idx);
+        }
+        if (contact != null && contact.phones.isNotEmpty) {
+          recipients.add({'name': contact.name, 'phone': contact.phones[0]});
+        }
+      }
+      if (recipients.isEmpty) return;
+      await SmsGatewayService.persistScheduleForAlarm(
+        scheduleId: schedule.id,
+        message: schedule.message,
+        triggerAt: schedule.scheduledTime,
+        simSlot: schedule.simSlot,
+        recipients: recipients,
+      );
+      AppLogger.info(_tag, '_persistToNative: persisted ${schedule.id} with ${recipients.length} recipients');
+    } on MissingPluginException {
+      // Expected in headless context.
+    } catch (e) {
+      AppLogger.error(_tag, '_persistToNative error: $e');
+    }
   }
 
   List<ScheduledMessage> getDueSchedules() {
@@ -228,19 +344,28 @@ class ScheduledMessageStore extends ChangeNotifier {
     }
   }
 
+  /// Whether this store is running in the headless (alarm) isolate.
+  /// Set to true by [setHeadlessMode] before calling [processDueSchedules]
+  /// from the headless entrypoint.
+  bool _isHeadless = false;
+
+  /// Called once from [headless_entrypoint.dart] to switch this store into
+  /// headless mode. In headless mode [processDueSchedules] is the SOLE sender
+  /// of scheduled SMS. The UI isolate's [processDueSchedules] will only mark
+  /// schedules as sent if a headless session is already in Hive — it will
+  /// never create a new session itself.
+  void setHeadlessMode() => _isHeadless = true;
+
   /// Called by the UI (manual refresh), by the headless alarm entrypoint,
   /// and by the foreground Dart timer fallback.
   ///
-  /// FIX (Tatizo 1 & 2): Before starting a new session or calling markAsSent,
-  /// we now:
-  ///   1. Re-read the schedule's current status from the in-memory list
-  ///      (which was reloaded from Hive at startup). If status is no longer
-  ///      `pending` the other isolate already processed it — skip entirely.
-  ///   2. Acquire a per-schedule-ID in-flight lock so that if both isolates
-  ///      reach this point simultaneously, only one proceeds.
-  ///   3. Pass the `scheduleId` to `startSessionWithRecipients` so that
-  ///      SmsSessionStore can detect and skip duplicate sessions for the same
-  ///      schedule ID (see SmsSessionStore fix).
+  /// SINGLE-PATH RULE:
+  ///   • Headless isolate  → creates session + sends SMS + marks as sent
+  ///   • UI isolate        → marks as sent ONLY if headless already created a
+  ///                         session in Hive; never creates a new session
+  ///
+  /// This eliminates the race condition where both isolates create duplicate
+  /// sessions for the same schedule.
   Future<void> processDueSchedules() async {
     if (_isProcessingDue) return;
     _isProcessingDue = true;
@@ -250,8 +375,8 @@ class ScheduledMessageStore extends ChangeNotifier {
       await Hive.openBox<ScheduledMessage>(_scheduleBoxName);
 
       // Reload schedules from Hive so we see changes made by the other isolate
-      // (e.g. UI isolate already marked a schedule as `sent` between the alarm
-      // firing and this code running).
+      // (e.g. headless isolate already marked a schedule as `sent` between the
+      // alarm firing and this code running).
       final box = Hive.box<ScheduledMessage>(_scheduleBoxName);
       schedules.clear();
       schedules.addAll(box.values.toList()
@@ -264,70 +389,137 @@ class ScheduledMessageStore extends ChangeNotifier {
         return;
       }
 
-      AppLogger.info(_tag, 'Processing ${due.length} due schedules');
+      AppLogger.info(_tag, 'Processing ${due.length} due schedules${_isHeadless ? " [headless]" : " [UI]"}');
 
       final sessionStore = SmsSessionStore();
       await sessionStore.awaitLoaded();
 
       for (final schedule in due) {
         // --- Per-schedule duplicate guard ---
-        // If another isolate is already handling this schedule ID, skip it.
         if (_inFlightScheduleIds.contains(schedule.id)) {
-          AppLogger.info(
-            _tag,
-            'processDueSchedules: schedule ${schedule.id} already in-flight — skipped.',
-          );
+          AppLogger.info(_tag, 'processDueSchedules: schedule ${schedule.id} already in-flight — skipped.');
           continue;
         }
 
-        // Re-check live status from the in-memory list (already reloaded above).
-        // If the other isolate finished and saved `sent` to Hive between our
-        // reload and this loop iteration, the status won't be `pending` anymore.
+        // Re-check live status from Hive.
         final live = schedules.firstWhere(
           (s) => s.id == schedule.id,
           orElse: () => schedule,
         );
         if (live.status != ScheduleStatus.pending || !live.isActive) {
-          AppLogger.info(
-            _tag,
-            'processDueSchedules: schedule ${schedule.id} is ${live.status} — skipped (already handled).',
-          );
+          AppLogger.info(_tag, 'processDueSchedules: schedule ${schedule.id} is ${live.status} — skipped.');
           continue;
         }
 
         _inFlightScheduleIds.add(schedule.id);
         try {
-          // FIX (Tatizo 1): Check whether SmsSessionStore already has a
-          // session for this schedule (created by the other isolate). If so,
-          // only call markAsSent — do NOT create a duplicate session.
+          // Check whether a session for this schedule ALREADY exists in Hive
+          // (written by the other isolate). sessionForSchedule() checks the
+          // Hive box on disk — cross-isolate safe.
           final existingSession = sessionStore.sessionForSchedule(schedule.id);
 
-          if (existingSession == null) {
-            final recipients = await _buildRecipients(schedule.recipientIds);
-            if (recipients.isEmpty) {
-              await markAsFailed(schedule, reason: 'No valid recipients found');
-              continue;
+          if (_isHeadless) {
+            // ── HEADLESS PATH ──────────────────────────────────────────────
+            // Headless isolate is the sole authority for Dart-side sending.
+            // However, the Kotlin native path (SmsForegroundService) may have
+            // already claimed or sent this schedule via NativeScheduleStore.
+            // We must check + atomically claim it before creating a session.
+
+            if (existingSession != null) {
+              // UI isolate beat us to it — just mark as sent without re-sending.
+              AppLogger.info(_tag,
+                'processDueSchedules [headless]: session ${existingSession.id} already '
+                'exists for schedule ${schedule.id} — skipping send, only marking sent.');
+            } else {
+              // ── Native dedup gate ─────────────────────────────────────────
+              // Check whether the Kotlin native path has already sent or claimed
+              // this schedule in SQLite (status='sent'|'processing'|'failed').
+              // If so, skip sending — the native path already owns this message.
+              String? nativeStatus;
+              try {
+                nativeStatus = await SmsGatewayService.getNativeScheduleStatus(schedule.id);
+              } on MissingPluginException {
+                nativeStatus = null; // channel not available in this context
+              } catch (_) {
+                nativeStatus = null;
+              }
+
+              if (nativeStatus == 'sent' || nativeStatus == 'failed') {
+                // Native path already finished — just sync Hive state and move on.
+                AppLogger.info(_tag,
+                  'processDueSchedules [headless]: native status=$nativeStatus for '
+                  '${schedule.id} — skipping Dart send, updating Hive only.');
+              } else if (nativeStatus == 'processing') {
+                // Native path is mid-send right now — do not interfere.
+                AppLogger.info(_tag,
+                  'processDueSchedules [headless]: native is processing ${schedule.id} '
+                  '— skipping Dart send to avoid duplicate.');
+                _inFlightScheduleIds.remove(schedule.id);
+                continue;
+              } else {
+                // Native status is 'pending' or null (not in native store at all).
+                // Try to atomically claim it so the native path cannot also send.
+                bool claimed = true;
+                if (nativeStatus == 'pending') {
+                  try {
+                    claimed = await SmsGatewayService.claimNativeSchedule(schedule.id);
+                  } on MissingPluginException {
+                    claimed = true; // channel not available — proceed as sole sender
+                  } catch (_) {
+                    claimed = true;
+                  }
+                }
+
+                if (!claimed) {
+                  // Another path (native Kotlin) beat us to the claim — skip.
+                  AppLogger.info(_tag,
+                    'processDueSchedules [headless]: native claimed ${schedule.id} '
+                    'before us — skipping Dart send.');
+                  _inFlightScheduleIds.remove(schedule.id);
+                  continue;
+                }
+
+                // We hold the exclusive claim — proceed to create session and send.
+                final recipients = await _buildRecipients(schedule.recipientIds);
+                if (recipients.isEmpty) {
+                  await markAsFailed(schedule, reason: 'No valid recipients found');
+                  continue;
+                }
+                await sessionStore.startSessionWithRecipients(
+                  message: schedule.message,
+                  simSlot: schedule.simSlot,
+                  simLabel: schedule.simLabel,
+                  recipients: recipients,
+                  scheduleId: schedule.id,
+                );
+              }
             }
+            await markAsSent(schedule);
 
-            // Pass scheduleId so SmsSessionStore can deduplicate on its side.
-            await sessionStore.startSessionWithRecipients(
-              message: schedule.message,
-              simSlot: schedule.simSlot,
-              simLabel: schedule.simLabel,
-              recipients: recipients,
-              scheduleId: schedule.id,
-            );
           } else {
-            AppLogger.info(
-              _tag,
-              'processDueSchedules: session ${existingSession.id} already exists '
-              'for schedule ${schedule.id} — skipping startSessionWithRecipients.',
-            );
+            // ── UI PATH ───────────────────────────────────────────────────
+            // UI isolate NEVER creates sessions for scheduled sends.
+            // It only marks as sent after the headless session is done.
+            if (existingSession != null && existingSession.isComplete) {
+              AppLogger.info(_tag,
+                'processDueSchedules [UI]: headless session ${existingSession.id} complete '
+                '— marking schedule ${schedule.id} as sent.');
+              await markAsSent(schedule);
+            } else if (existingSession != null) {
+              AppLogger.info(_tag,
+                'processDueSchedules [UI]: headless session ${existingSession.id} still '
+                'in-progress for schedule ${schedule.id} — no action from UI.');
+            } else {
+              // No session at all yet — headless will handle it when the alarm fires.
+              AppLogger.info(_tag,
+                'processDueSchedules [UI]: no session yet for schedule ${schedule.id} '
+                '— headless will send when alarm fires. No action from UI.');
+            }
           }
-
-          await markAsSent(schedule);
         } catch (e) {
-          await markAsFailed(schedule, reason: e.toString());
+          if (_isHeadless) {
+            await markAsFailed(schedule, reason: e.toString());
+          }
         } finally {
           _inFlightScheduleIds.remove(schedule.id);
         }
@@ -343,6 +535,9 @@ class ScheduledMessageStore extends ChangeNotifier {
   Future<List<SmsRecipient>> _buildRecipients(List<String> recipientIds) async {
     final contactBox = Hive.box<Contact>('contacts');
     final List<SmsRecipient> result = [];
+    // Guard against contacts that share the same name (e.g. same person
+    // stored twice with different phone numbers). One SMS per unique name.
+    final seenNames = <String>{};
 
     for (final id in recipientIds) {
       Contact? contact;
@@ -364,6 +559,14 @@ class ScheduledMessageStore extends ChangeNotifier {
       }
 
       if (contact != null && contact.phones.isNotEmpty) {
+        final normalizedName = contact.name.trim().toLowerCase();
+        if (seenNames.contains(normalizedName)) {
+          AppLogger.info(_tag,
+            '_buildRecipients: skipping duplicate name "${contact.name}" — '
+            'first number already added for this contact.');
+          continue;
+        }
+        seenNames.add(normalizedName);
         result.add(SmsRecipient(
           name: contact.name,
           phone: contact.phones[0],

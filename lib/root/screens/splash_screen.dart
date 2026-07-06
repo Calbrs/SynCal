@@ -54,17 +54,26 @@ class _SplashScreenState extends State<SplashScreen>
     });
   }
 
-  void _navigateAfterSplash() {
-    final settingsBox = Hive.box('settings');
-    final bool isLoggedIn = settingsBox.get('isLoggedIn', defaultValue: false) as bool;
+ void _navigateAfterSplash() {
+  final settingsBox = Hive.box('settings');
 
-    if (isLoggedIn) {
-      context.go(AppRoutes.home);
-    } else {
-      context.go(AppRoutes.auth);
-    }
+  final bool hasSeenOnboarding =
+      settingsBox.get('hasSeenOnboarding', defaultValue: false);
+
+  if (!hasSeenOnboarding) {
+    context.go(AppRoutes.onboarding);
+    return;
   }
 
+  final bool isLoggedIn =
+      settingsBox.get('isLoggedIn', defaultValue: false);
+
+  if (isLoggedIn) {
+    context.go(AppRoutes.home);
+  } else {
+    context.go(AppRoutes.auth);
+  }
+}
   @override
   void dispose() {
     _controller.dispose();

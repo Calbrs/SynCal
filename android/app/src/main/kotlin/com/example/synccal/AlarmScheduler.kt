@@ -52,10 +52,18 @@ object AlarmScheduler {
     fun scheduleAt(context: Context, triggerAtMillis: Long) {
         val pendingIntent = buildPendingIntent(context)
         val am = alarmManager(context)
+
         try {
             if (canScheduleExact(context)) {
-                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
-                Log.d(TAG, "Scheduled EXACT alarm at $triggerAtMillis")
+                val showIntent = Intent(context, MainActivity::class.java)
+                val showPendingIntent = PendingIntent.getActivity(
+                    context,
+                    REQUEST_CODE,
+                    showIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                )
+                am.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAtMillis, showPendingIntent), pendingIntent)
+                Log.d(TAG, "Scheduled EXACT (AlarmClock) alarm at $triggerAtMillis")
             } else {
                 am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAtMillis, pendingIntent)
                 Log.d(TAG, "Scheduled inexact (fallback) alarm at $triggerAtMillis — exact-alarm permission not granted")
@@ -74,7 +82,38 @@ object AlarmScheduler {
         am.cancel(buildPendingIntent(context))
     }
 
-    /** Also schedules a periodic safety-net check every 15 min, inexact (no special permission needed),
+    /**
+     * Reads the persisted next-alarm trigger time from SharedPreferences and
+     * re-arms the exact AlarmManager alarm. Called by BootReceiver to restore
+     * the alarm after device reboot (AlarmManager alarms are wiped on reboot).
+     *
+     * If the persisted time is already in the past (message was due while the
+     * device was off), the alarm is set 5 seconds in the future so the headless
+     * engine fires immediately and processes the overdue schedule.
+     */
+    fun scheduleAtFromPrefs(context: Context) {
+        val prefs = context.getSharedPreferences(
+            SmsMethodCallHandler.ALARM_PREFS_NAME,
+            android.content.Context.MODE_PRIVATE
+        )
+        val triggerAtMillis = prefs.getLong(SmsMethodCallHandler.NEXT_ALARM_TRIGGER_KEY, 0L)
+        if (triggerAtMillis == 0L) {
+            Log.d(TAG, "scheduleAtFromPrefs: no persisted alarm — nothing to restore")
+            return
+        }
+        // If the scheduled time is in the past, fire almost immediately so overdue
+        // messages are processed as soon as the device finishes booting.
+        val effectiveTrigger = if (triggerAtMillis <= System.currentTimeMillis()) {
+            Log.d(TAG, "scheduleAtFromPrefs: schedule was due while device was off — firing in 5s")
+            System.currentTimeMillis() + 5_000L
+        } else {
+            triggerAtMillis
+        }
+        scheduleAt(context, effectiveTrigger)
+        Log.d(TAG, "scheduleAtFromPrefs: restored alarm for $effectiveTrigger (original: $triggerAtMillis)")
+    }
+
+    /** Also schedules a periodic safety-net check every 2 min, inexact (no special permission needed),
      * so a missed/cancelled exact alarm (e.g. OEM aggressively clearing alarms) still self-heals.
      */
     fun scheduleSafetyNet(context: Context) {
@@ -88,13 +127,13 @@ object AlarmScheduler {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val am = alarmManager(context)
-        val interval = 15 * 60 * 1000L
+        val interval = 2 * 60 * 1000L
         am.setInexactRepeating(
             AlarmManager.RTC_WAKEUP,
             System.currentTimeMillis() + interval,
             interval,
             pendingIntent
         )
-        Log.d(TAG, "Safety-net 15min repeating alarm scheduled")
+        Log.d(TAG, "Safety-net 2min repeating alarm scheduled")
     }
 }

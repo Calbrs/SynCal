@@ -83,74 +83,73 @@ class _BackgroundPermissionPromptState
     if (status == null) return const SizedBox.shrink();
     if (status.allGranted) return const SizedBox.shrink();
 
-    return Card(
-      margin: const EdgeInsets.all(12),
-      color: Colors.orange.shade50,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(children: [
-              const Icon(Icons.warning_amber_rounded, color: Colors.orange),
-              const SizedBox(width: 8),
-              const Expanded(
-                child: Text(
-                  'Scheduled messages may not work',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: const Color(0xFF18181B), // zinc900
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.orange.withOpacity(0.3), width: 1),
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(children: [
+            const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent),
+            const SizedBox(width: 8),
+            const Expanded(
+              child: Text(
+                'Background settings required',
+                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white, fontSize: 14.5),
               ),
-              IconButton(
-                icon: const Icon(Icons.refresh, size: 20),
-                onPressed: _refresh,
-                tooltip: 'Re-check permissions',
-              ),
-            ]),
-            const SizedBox(height: 4),
-            const Text(
-              'Allow the following settings so messages send even when the app is closed:',
-              style: TextStyle(fontSize: 13),
             ),
-            const SizedBox(height: 12),
-            _PermissionTile(
-              icon: Icons.alarm,
-              label: 'Exact alarm permission',
-              granted: status.canScheduleExactAlarms,
-              onTap: () async {
-                await SmsGatewayService.requestExactAlarmPermission();
-                // User is taken to system settings — re-check on resume
-              },
+            IconButton(
+              icon: const Icon(Icons.refresh, size: 20, color: Colors.white70),
+              onPressed: _refresh,
+              tooltip: 'Re-check permissions',
             ),
-            _PermissionTile(
-              icon: Icons.battery_saver,
-              label: 'Battery optimization — tap to disable for this app',
-              granted: status.isIgnoringBatteryOptimizations,
-              onTap: () async {
-                await SmsGatewayService.requestIgnoreBatteryOptimizations();
-              },
-            ),
-            // Autostart cannot be checked programmatically, so always show it.
-            _PermissionTile(
-              icon: Icons.rocket_launch_outlined,
-              label: 'Autostart — tap to enable in Phone Manager',
-              granted: null, // unknown — always show as actionable
-              onTap: () async {
-                final openedSpecific =
-                    await SmsGatewayService.openAutostartSettings();
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text(openedSpecific
-                        ? 'Find this app and enable Autostart'
-                        : 'Find this app in the list and allow it to start automatically'),
-                    duration: const Duration(seconds: 5),
-                  ));
-                }
-              },
-            ),
-          ],
-        ),
+          ]),
+          const SizedBox(height: 6),
+          const Text(
+            'Infinix & other phones aggressively kill background processes. Allow these settings to ensure messages send on time:',
+            style: TextStyle(fontSize: 12.5, color: Colors.white70, height: 1.3),
+          ),
+          const SizedBox(height: 12),
+          _PermissionTile(
+            icon: Icons.alarm,
+            label: 'Exact alarm permission',
+            granted: status.canScheduleExactAlarms,
+            onTap: () async {
+              await SmsGatewayService.requestExactAlarmPermission();
+            },
+          ),
+          _PermissionTile(
+            icon: Icons.battery_saver,
+            label: 'Ignore battery optimizations',
+            granted: status.isIgnoringBatteryOptimizations,
+            onTap: () async {
+              await SmsGatewayService.requestIgnoreBatteryOptimizations();
+            },
+          ),
+          _PermissionTile(
+            icon: Icons.rocket_launch_outlined,
+            label: 'Enable Autostart (Phone Manager)',
+            granted: null,
+            onTap: () async {
+              final openedSpecific =
+                  await SmsGatewayService.openAutostartSettings();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text(openedSpecific
+                      ? 'Find SynCal and enable Autostart'
+                      : 'Find SynCal and allow automatic background startup'),
+                  duration: const Duration(seconds: 5),
+                ));
+              }
+            },
+          ),
+        ],
       ),
     );
   }
@@ -159,7 +158,7 @@ class _BackgroundPermissionPromptState
 class _PermissionTile extends StatelessWidget {
   final IconData icon;
   final String label;
-  final bool? granted; // null = unknown (autostart)
+  final bool? granted;
   final VoidCallback onTap;
 
   const _PermissionTile({
@@ -174,21 +173,44 @@ class _PermissionTile extends StatelessWidget {
     final isGranted = granted == true;
     final isUnknown = granted == null;
 
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: Icon(icon,
-          color: isGranted
-              ? Colors.green
-              : isUnknown
-                  ? Colors.orange
-                  : Colors.red),
-      title: Text(label, style: const TextStyle(fontSize: 13)),
-      trailing: isGranted
-          ? const Icon(Icons.check_circle, color: Colors.green)
-          : TextButton(
-              onPressed: onTap,
-              child: Text(isUnknown ? 'Open' : 'Fix'),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            size: 18,
+            color: isGranted
+                ? Colors.greenAccent
+                : isUnknown
+                    ? Colors.orangeAccent
+                    : Colors.redAccent,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: TextStyle(fontSize: 13, color: Colors.white.withOpacity(0.9)),
             ),
+          ),
+          if (isGranted)
+            const Icon(Icons.check_circle_outline_rounded, color: Colors.greenAccent, size: 18)
+          else
+            TextButton(
+              onPressed: onTap,
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                foregroundColor: isUnknown ? Colors.orangeAccent : Colors.redAccent,
+              ),
+              child: Text(
+                isUnknown ? 'Open' : 'Fix',
+                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.bold),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -353,45 +375,53 @@ class _SheetTile extends StatelessWidget {
     final isGranted = granted == true;
     final isUnknown = granted == null;
 
+    final AccentColor = isGranted
+        ? Colors.greenAccent
+        : isUnknown
+            ? Colors.orangeAccent
+            : Colors.redAccent;
+
     return Container(
       decoration: BoxDecoration(
         border: Border.all(
-          color: isGranted
-              ? Colors.green.shade200
-              : isUnknown
-                  ? Colors.orange.shade200
-                  : Colors.red.shade200,
+          color: AccentColor.withOpacity(0.3),
+          width: 1,
         ),
-        borderRadius: BorderRadius.circular(10),
-        color: isGranted
-            ? Colors.green.shade50
-            : isUnknown
-                ? Colors.orange.shade50
-                : Colors.red.shade50,
+        borderRadius: BorderRadius.circular(12),
+        color: const Color(0xFF18181B), // zinc900
       ),
-      child: ListTile(
-        leading: Icon(icon,
-            color: isGranted
-                ? Colors.green
-                : isUnknown
-                    ? Colors.orange
-                    : Colors.red),
-        title: Text(title,
-            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-        subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
-        trailing: isGranted
-            ? const Icon(Icons.check_circle, color: Colors.green)
-            : ElevatedButton(
-                onPressed: onTap,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: isUnknown ? Colors.orange : Colors.red,
-                  foregroundColor: Colors.white,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      child: Material(
+        color: Colors.transparent,
+        child: ListTile(
+          leading: Icon(
+            icon,
+            color: AccentColor,
+          ),
+          title: Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: Colors.white),
+          ),
+          subtitle: Text(
+            subtitle,
+            style: const TextStyle(fontSize: 12, color: Colors.white70),
+          ),
+          trailing: isGranted
+              ? const Icon(Icons.check_circle_outline_rounded, color: Colors.greenAccent)
+              : ElevatedButton(
+                  onPressed: onTap,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isUnknown ? Colors.orangeAccent : Colors.redAccent,
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  child: Text(
+                    isUnknown ? 'Open' : 'Fix',
+                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                  ),
                 ),
-                child: Text(isUnknown ? 'Open' : 'Fix',
-                    style: const TextStyle(fontSize: 12)),
-              ),
+        ),
       ),
     );
   }

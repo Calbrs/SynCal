@@ -28,6 +28,8 @@ class SmsMethodCallHandler(
 
     companion object {
         private const val TAG = "SmsMethodCallHandler"
+        const val ALARM_PREFS_NAME = "alarm_scheduler_prefs"
+        const val NEXT_ALARM_TRIGGER_KEY = "next_alarm_trigger_millis"
     }
 
     fun setActivity(activity: Activity?) {
@@ -67,7 +69,12 @@ class SmsMethodCallHandler(
                 result.success(null)
             }
             "stopForegroundService" -> {
-                context.stopService(Intent(context, SmsForegroundService::class.java))
+                // Only stop the service if we don't have pending schedules waiting
+                val prefs = context.getSharedPreferences(ALARM_PREFS_NAME, android.content.Context.MODE_PRIVATE)
+                val triggerAtMillis = prefs.getLong(NEXT_ALARM_TRIGGER_KEY, 0L)
+                if (triggerAtMillis == 0L) {
+                    context.stopService(Intent(context, SmsForegroundService::class.java))
+                }
                 result.success(null)
             }
             "scheduleAlarm" -> {
@@ -76,12 +83,24 @@ class SmsMethodCallHandler(
                     result.error("INVALID_ARGS", "triggerAtMillis is required", null)
                     return
                 }
+                // Schedule the exact AlarmManager alarm.
                 AlarmScheduler.scheduleAt(context, triggerAtMillis)
+                // Re-register the safety-net in case it was cancelled.
                 AlarmScheduler.scheduleSafetyNet(context)
+                // Persist the trigger time so BootReceiver can re-arm after reboot.
+                context.getSharedPreferences(ALARM_PREFS_NAME, android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putLong(NEXT_ALARM_TRIGGER_KEY, triggerAtMillis)
+                    .apply()
                 result.success(null)
             }
             "cancelAlarm" -> {
                 AlarmScheduler.cancel(context)
+                // Clear the persisted next-alarm time.
+                context.getSharedPreferences(ALARM_PREFS_NAME, android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .remove(NEXT_ALARM_TRIGGER_KEY)
+                    .apply()
                 result.success(null)
             }
             "canScheduleExactAlarms" -> {
@@ -99,6 +118,89 @@ class SmsMethodCallHandler(
             "openAutostartSettings" -> {
                 openAutostartSettings(result)
             }
+
+            // ---- Native schedule persistence (for direct Kotlin SMS sending) ----
+
+            "persistScheduleForAlarm" -> {
+                // Dart passes all data needed for native-side SMS sending.
+                // This is called whenever a schedule is added or updated.
+                val scheduleId = call.argument<String>("scheduleId")
+                val message = call.argument<String>("message")
+                val triggerAtMillis = call.argument<Number>("triggerAtMillis")?.toLong()
+                val simSlot = call.argument<Int>("simSlot") ?: -1
+                val recipientsRaw = call.argument<List<Map<String, String>>>("recipients")
+
+                if (scheduleId == null || message == null || triggerAtMillis == null || recipientsRaw == null) {
+                    result.error("INVALID_ARGS", "persistScheduleForAlarm: missing required fields", null)
+                    return
+                }
+
+                val recipients = recipientsRaw.map {
+                    NativeScheduleStore.NativeRecipient(
+                        name = it["name"] ?: "",
+                        phone = it["phone"] ?: ""
+                    )
+                }.filter { it.phone.isNotEmpty() }
+
+                val schedule = NativeScheduleStore.NativeSchedule(
+                    scheduleId = scheduleId,
+                    message = message,
+                    triggerAtMillis = triggerAtMillis,
+                    simSlot = simSlot,
+                    status = NativeScheduleStore.STATUS_PENDING,
+                    recipients = recipients
+                )
+                NativeScheduleStore.saveSchedule(context, schedule)
+                android.util.Log.d("SmsMethodCallHandler", "persistScheduleForAlarm: saved $scheduleId")
+                result.success(null)
+            }
+
+            "deleteScheduleFromNative" -> {
+                val scheduleId = call.argument<String>("scheduleId")
+                if (scheduleId == null) {
+                    result.error("INVALID_ARGS", "deleteScheduleFromNative: scheduleId required", null)
+                    return
+                }
+                NativeScheduleStore.delete(context, scheduleId)
+                android.util.Log.d("SmsMethodCallHandler", "deleteScheduleFromNative: deleted $scheduleId")
+                result.success(null)
+            }
+
+            "getSyncState" -> {
+                // Returns all native schedules (any status) so Dart can sync Hive state.
+                // Used on app startup to pick up any schedules sent natively while the app was closed.
+                val all = NativeScheduleStore.getAll(context)
+                val maps = all.map { NativeScheduleStore.toSyncMap(it) }
+                result.success(maps)
+            }
+
+            "getNativeScheduleStatus" -> {
+                // Returns the current status string for a single scheduleId, or null if not in the
+                // native store at all. Used by the Dart headless path to detect if the Kotlin native
+                // path already sent (or is mid-sending) the same schedule, preventing duplicates.
+                val scheduleId = call.argument<String>("scheduleId")
+                if (scheduleId == null) {
+                    result.error("INVALID_ARGS", "scheduleId required", null)
+                    return
+                }
+                val status = NativeScheduleStore.getStatus(context, scheduleId)
+                result.success(status)
+            }
+
+            "claimNativeSchedule" -> {
+                // Atomically claims a schedule for sending by the Dart headless path.
+                // Transitions status pending → processing. Returns true only if this caller
+                // is the first to claim it. Both native Kotlin and Dart headless paths call
+                // their respective claim functions before sending, ensuring exactly-once delivery.
+                val scheduleId = call.argument<String>("scheduleId")
+                if (scheduleId == null) {
+                    result.error("INVALID_ARGS", "scheduleId required", null)
+                    return
+                }
+                val claimed = NativeScheduleStore.claimForSending(context, scheduleId)
+                result.success(claimed)
+            }
+
             else -> result.notImplemented()
         }
     }

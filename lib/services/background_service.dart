@@ -140,12 +140,13 @@ class BackgroundService {
 
   // ---- Permission helpers (called from UI/onboarding) ----
 
-  /// Since we shifted to WorkManager and removed restricted permissions to comply with PlayStore policies,
-  /// all checks return true to bypass warning/blocking states, while maintaining support for OEM autostart.
+  /// Checks the actual permission status for exact alarms and battery optimizations from the native side.
   static Future<BackgroundPermissionStatus> checkPermissions() async {
-    return const BackgroundPermissionStatus(
-      canScheduleExactAlarms: true,
-      isIgnoringBatteryOptimizations: true,
+    final canSchedule = await SmsGatewayService.canScheduleExactAlarms();
+    final ignoringBattery = await SmsGatewayService.isIgnoringBatteryOptimizations();
+    return BackgroundPermissionStatus(
+      canScheduleExactAlarms: canSchedule,
+      isIgnoringBatteryOptimizations: ignoringBattery,
     );
   }
 
@@ -155,7 +156,7 @@ class BackgroundService {
   }
 }
 
-/// Snapshot of background-execution permission state (stubbed to bypass PlayStore exact alarm and battery opt check).
+/// Snapshot of background-execution permission state.
 class BackgroundPermissionStatus {
   final bool canScheduleExactAlarms;
   final bool isIgnoringBatteryOptimizations;
@@ -165,8 +166,8 @@ class BackgroundPermissionStatus {
     required this.isIgnoringBatteryOptimizations,
   });
 
-  /// Always returns true since background scheduling is now exact-alarm-free.
-  bool get allGranted => true;
+  /// Returns true only when both exact alarm and battery optimization ignore permissions are granted.
+  bool get allGranted => canScheduleExactAlarms && isIgnoringBatteryOptimizations;
 
   @override
   String toString() =>

@@ -78,6 +78,8 @@ Future<void> scheduledMessageCallbackDispatcher() async {
     await messageStore.awaitLoaded();
     await sessionStore.awaitLoaded();
 
+    // Mark as headless so processDueSchedules knows it's the sole SMS sender.
+    messageStore.setHeadlessMode();
     await messageStore.processDueSchedules();
 
     AppLogger.info(_tag, 'Headless task finished processing due schedules');

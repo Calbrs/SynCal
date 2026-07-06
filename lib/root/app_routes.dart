@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 
 import 'screens/create_event_screen.dart';
 import 'screens/home_screen.dart';
@@ -9,6 +10,8 @@ import 'screens/authentication.dart';
 import 'screens/link_management_screen.dart';
 import 'screens/scheduled_messages_screen.dart';
 import 'screens/add_schedule_screen.dart';
+import 'screens/onboard_screen.dart';
+import 'screens/session_detail_screen.dart';
 
 class AppRoutes {
   static const String splash = '/';
@@ -19,6 +22,15 @@ class AppRoutes {
   static const String links = '/links';
   static const String scheduled = '/scheduled';
   static const String addSchedule = '/scheduled/add';
+  static const String onboarding = '/onboarding';
+  static const String sessionDetail = '/scheduled/session';
+
+  // Routes that don't require an authenticated session.
+  static const Set<String> _publicRoutes = {
+    splash,
+    auth,
+    onboarding,
+  };
 
   static Page<dynamic> _buildSmoothTransitionPage({
     required LocalKey key,
@@ -54,8 +66,37 @@ class AppRoutes {
     );
   }
 
+  // Guards every navigation attempt: if the user hasn't logged in or
+  // registered yet (no `isLoggedIn` flag in the settings box), any attempt
+  // to reach a protected route (home, settings, create-event, etc.) is
+  // bounced back to the auth screen instead. Splash/auth/onboarding stay
+  // reachable so the user can actually get to sign-in in the first place.
+  static String? _authGuard(BuildContext context, GoRouterState state) {
+    final settingsBox = Hive.box('settings');
+    final bool isLoggedIn = settingsBox.get('isLoggedIn', defaultValue: false) as bool;
+
+    final String location = state.matchedLocation;
+    final bool isPublicRoute = _publicRoutes.contains(location);
+
+    // Already logged in and sitting on the auth screen? Send them home
+    // instead of letting them re-visit the login/register form.
+    if (isLoggedIn && location == auth) {
+      return home;
+    }
+
+    // Not logged in and trying to reach a protected route? Send them to
+    // auth instead.
+    if (!isLoggedIn && !isPublicRoute) {
+      return auth;
+    }
+
+    // No redirect needed.
+    return null;
+  }
+
   static final GoRouter router = GoRouter(
     initialLocation: splash,
+    redirect: _authGuard,
     routes: [
       GoRoute(
         path: splash,
@@ -63,6 +104,14 @@ class AppRoutes {
         pageBuilder: (context, state) => _buildSmoothTransitionPage(
           key: state.pageKey,
           child: const SplashScreen(),
+        ),
+      ),
+      GoRoute(
+        path: '$sessionDetail/:id',
+        name: 'sessionDetail',
+        pageBuilder: (context, state) => _buildSmoothTransitionPage(
+          key: state.pageKey,
+          child: SessionDetailScreen(sessionId: state.pathParameters['id']!),
         ),
       ),
       GoRoute(
@@ -119,6 +168,14 @@ class AppRoutes {
         pageBuilder: (context, state) => _buildSmoothTransitionPage(
           key: state.pageKey,
           child: const AddScheduleScreen(),
+        ),
+      ),
+      GoRoute(
+        path: onboarding,
+        name: 'onboarding',
+        pageBuilder: (context, state) => _buildSmoothTransitionPage(
+          key: state.pageKey,
+          child: const OnboardingScreen(),
         ),
       ),
     ],

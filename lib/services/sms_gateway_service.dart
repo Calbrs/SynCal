@@ -197,4 +197,94 @@ class SmsGatewayService {
   /// explaining what to do on the settings screen that opens.
   static Future<bool> openAutostartSettings() async =>
       await _channel.invokeMethod<bool>('openAutostartSettings') ?? false;
-}
+
+  // ---- Native schedule persistence (for direct Kotlin SMS sending) -----------
+
+  /// Persists a schedule's data to Android SharedPreferences so that
+  /// ScheduleAlarmReceiver can send the SMS entirely in Kotlin — no Flutter
+  /// engine needed at alarm time.
+  ///
+  /// Must be called whenever a schedule is added or updated in Hive.
+  static Future<void> persistScheduleForAlarm({
+    required String scheduleId,
+    required String message,
+    required DateTime triggerAt,
+    required int simSlot,
+    required List<Map<String, String>> recipients,
+  }) async {
+    try {
+      await _channel.invokeMethod('persistScheduleForAlarm', {
+        'scheduleId': scheduleId,
+        'message': message,
+        'triggerAtMillis': triggerAt.millisecondsSinceEpoch,
+        'simSlot': simSlot,
+        'recipients': recipients,
+      });
+    } catch (_) {
+      // Non-fatal — native store not critical for basic functionality
+    }
+  }
+
+  /// Removes a schedule from the native SharedPreferences store.
+  /// Call when a schedule is deleted or toggled inactive in Dart.
+  static Future<void> deleteScheduleFromNative(String scheduleId) async {
+    try {
+      await _channel.invokeMethod('deleteScheduleFromNative', {
+        'scheduleId': scheduleId,
+      });
+    } catch (_) {
+      // Non-fatal
+    }
+  }
+
+  /// Returns a list of {scheduleId, status} maps from the native store.
+  /// Called on app startup to sync any schedules sent natively while the
+  /// app was closed back into Hive.
+  static Future<List<Map<String, String>>> getSyncState() async {
+    try {
+      final raw = await _channel.invokeListMethod<Map>('getSyncState');
+      if (raw == null) return [];
+      return raw.map((e) => {
+        'scheduleId': (e['scheduleId'] as String?) ?? '',
+        'status': (e['status'] as String?) ?? '',
+      }).where((m) => m['scheduleId']!.isNotEmpty).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Returns the current native SQLite status for [scheduleId], or null if the
+  /// schedule is not in the native store (e.g. never persisted there, or already
+  /// deleted after a successful sync). Values: 'pending', 'processing', 'sent',
+  /// 'failed', or null.
+  ///
+  /// The Dart headless path checks this BEFORE creating an SmsSession to detect
+  /// whether the Kotlin native path already claimed or sent this schedule.
+  static Future<String?> getNativeScheduleStatus(String scheduleId) async {
+    try {
+      return await _channel.invokeMethod<String>('getNativeScheduleStatus', {
+        'scheduleId': scheduleId,
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Atomically claims a schedule for sending by the Dart headless path.
+  /// Transitions the native SQLite status from 'pending' → 'processing'.
+  ///
+  /// Returns true only if this caller is the first to claim the schedule.
+  /// Returns false if another path (native Kotlin or another Dart isolate)
+  /// already claimed or sent it — caller must skip sending in that case.
+  static Future<bool> claimNativeSchedule(String scheduleId) async {
+    try {
+      return await _channel.invokeMethod<bool>('claimNativeSchedule', {
+        'scheduleId': scheduleId,
+      }) ?? false;
+    } catch (_) {
+      // Channel unavailable (e.g. WorkManager isolate without MainActivity).
+      // Return true so the Dart path can still send as a safety fallback.
+      return true;
+    }
+  }
+}

@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
@@ -11,7 +13,8 @@ class SynCalAuthPage extends StatefulWidget {
   State<SynCalAuthPage> createState() => _SynCalAuthPageState();
 }
 
-class _SynCalAuthPageState extends State<SynCalAuthPage> {
+class _SynCalAuthPageState extends State<SynCalAuthPage>
+    with TickerProviderStateMixin {
   bool _isRegisterMode = false;
   bool _isLoading = false;
 
@@ -30,13 +33,24 @@ class _SynCalAuthPageState extends State<SynCalAuthPage> {
   String? _errorMessage;
   String? _successMessage;
 
-  static const Color zinc950 = Color(0xFF09090B);
+  late final AnimationController _entranceController;
+
+  static const Color bgDark = Color(0xFF1C1C1E);
   static const Color zinc900 = Color(0xFF18181B);
   static const Color zinc800 = Color(0xFF27272A);
   static const Color zinc600 = Color(0xFF52525B);
   static const Color zinc500 = Color(0xFF71717A);
   static const Color zinc400 = Color(0xFFA1A1AA);
   static const Color zinc300 = Color(0xFFD4D4D8);
+
+  @override
+  void initState() {
+    super.initState();
+    _entranceController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..forward();
+  }
 
   @override
   void dispose() {
@@ -46,7 +60,35 @@ class _SynCalAuthPageState extends State<SynCalAuthPage> {
     _regClassController.dispose();
     _regPasswordController.dispose();
     _regConfirmPasswordController.dispose();
+    _entranceController.dispose();
     super.dispose();
+  }
+
+  Animation<double> _stagger(double start, double end) {
+    return CurvedAnimation(
+      parent: _entranceController,
+      curve: Interval(start, end, curve: Curves.easeOutCubic),
+    );
+  }
+
+  Widget _fadeSlideIn({
+    required Animation<double> animation,
+    required Widget child,
+    double offset = 24,
+  }) {
+    return AnimatedBuilder(
+      animation: animation,
+      builder: (context, _) {
+        return Opacity(
+          opacity: animation.value.clamp(0.0, 1.0),
+          child: Transform.translate(
+            offset: Offset(0, offset * (1 - animation.value)),
+            child: child,
+          ),
+        );
+      },
+      child: child,
+    );
   }
 
   void _navigateToHome() {
@@ -133,69 +175,208 @@ class _SynCalAuthPageState extends State<SynCalAuthPage> {
         (_regPasswordController.text != _regConfirmPasswordController.text);
 
     return Scaffold(
-      backgroundColor: zinc950,
-      body: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 60),
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 420),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('SynCal', style: TextStyle(fontSize: 44, fontWeight: FontWeight.w900, color: Colors.white, letterSpacing: -1)),
-                const SizedBox(height: 4),
-                Text(
-                  _isRegisterMode ? 'Setup a new user workspace core' : 'Sign in to active system terminal',
-                  style: const TextStyle(fontSize: 12, color: zinc500, fontWeight: FontWeight.w500),
-                ),
-                const SizedBox(height: 32),
-
-                if (_errorMessage != null) ...[
-                  _buildStatusBanner(_errorMessage!, Colors.redAccent),
-                  const SizedBox(height: 16),
-                ],
-                if (_successMessage != null) ...[
-                  _buildStatusBanner(_successMessage!, Colors.green),
-                  const SizedBox(height: 16),
-                ],
-
-                AnimatedSize(
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
-                  child: _isRegisterMode ? _buildRegisterFormLayout(isMismatch) : _buildLoginFormLayout(),
-                ),
-
-                const SizedBox(height: 24),
-                Center(
-                  child: TextButton(
-                    onPressed: () {
-                      setState(() {
-                        _isRegisterMode = !_isRegisterMode;
-                        _errorMessage = null;
-                        _successMessage = null;
-                      });
-                    },
-                    child: Text(
-                      _isRegisterMode ? 'Existing user terminal? Sign In' : 'New user? Setup Account Core',
-                      style: const TextStyle(fontSize: 11, color: zinc400, decoration: TextDecoration.underline, decorationColor: zinc800),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 40),
-                const Center(
-                  child: Text('POWERED BY CALBRS', style: TextStyle(fontFamily: 'monospace', fontSize: 10, letterSpacing: 2, color: zinc600)),
-                ),
-              ],
+      backgroundColor: bgDark,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // ── Soft ambient blur blobs matching the onboarding screen's
+          // frosted, layered look, since there's no photo background here.
+          Positioned(
+            top: -80,
+            left: -60,
+            child: _fadeSlideIn(
+              animation: _stagger(0.0, 0.6),
+              offset: -20,
+              child: _GlowBlob(
+                color: Colors.white.withValues(alpha: 0.05),
+                size: 260,
+              ),
             ),
           ),
-        ),
+          Positioned(
+            bottom: -100,
+            right: -80,
+            child: _fadeSlideIn(
+              animation: _stagger(0.1, 0.7),
+              offset: 20,
+              child: _GlowBlob(
+                color: Colors.white.withValues(alpha: 0.04),
+                size: 320,
+              ),
+            ),
+          ),
+
+          SafeArea(
+            child: Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+                child: Container(
+                  constraints: const BoxConstraints(maxWidth: 420),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // ── Logo + welcome header, styled like the onboarding
+                      // top scrim block (icon, title, subtitle).
+                      _fadeSlideIn(
+                        animation: _stagger(0.0, 0.5),
+                        offset: -20,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(20),
+                              child: Image.asset(
+                                'assets/icons/syncal.png',
+                                width: 72,
+                                height: 72,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    width: 72,
+                                    height: 72,
+                                    decoration: BoxDecoration(
+                                      color: zinc900,
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: Border.all(color: zinc800, width: 0.5),
+                                    ),
+                                    child: const Icon(
+                                      Icons.sync_rounded,
+                                      color: Colors.white70,
+                                      size: 32,
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            const Text(
+                              'Welcome to SynCal',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 26,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              _isRegisterMode
+                                  ? 'Setup a new user workspace core'
+                                  : 'Sign in to active system terminal',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                color: Colors.white.withValues(alpha: 0.55),
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 32),
+
+                      // ── Form now sits directly on the screen background —
+                      // no card/frosted container behind the fields anymore.
+                      _fadeSlideIn(
+                        animation: _stagger(0.25, 0.85),
+                        offset: 30,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (_errorMessage != null) ...[
+                              _buildStatusBanner(_errorMessage!, Colors.redAccent),
+                              const SizedBox(height: 16),
+                            ],
+                            if (_successMessage != null) ...[
+                              _buildStatusBanner(_successMessage!, Colors.green),
+                              const SizedBox(height: 16),
+                            ],
+
+                            AnimatedSize(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
+                              child: AnimatedSwitcher(
+                                duration: const Duration(milliseconds: 260),
+                                transitionBuilder: (child, animation) {
+                                  return FadeTransition(
+                                    opacity: animation,
+                                    child: SlideTransition(
+                                      position: Tween<Offset>(
+                                        begin: const Offset(0, 0.08),
+                                        end: Offset.zero,
+                                      ).animate(animation),
+                                      child: child,
+                                    ),
+                                  );
+                                },
+                                child: _isRegisterMode
+                                    ? _buildRegisterFormLayout(isMismatch)
+                                    : _buildLoginFormLayout(),
+                              ),
+                            ),
+
+                            const SizedBox(height: 20),
+                            Center(
+                              child: SizedBox(
+                                width: double.infinity,
+                                child: TextButton(
+                                  onPressed: () {
+                                    setState(() {
+                                      _isRegisterMode = !_isRegisterMode;
+                                      _errorMessage = null;
+                                      _successMessage = null;
+                                    });
+                                  },
+                                  child: Text(
+                                    _isRegisterMode
+                                        ? 'Existing user terminal? Sign In'
+                                        : 'New user? Setup Account Core',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      color: zinc400,
+                                      decoration: TextDecoration.underline,
+                                      decorationColor: zinc800,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 28),
+                      _fadeSlideIn(
+                        animation: _stagger(0.4, 0.9),
+                        offset: 20,
+                        child: const Text(
+                          'POWERED BY CALBRS',
+                          style: TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 10,
+                            letterSpacing: 2,
+                            color: zinc600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _buildLoginFormLayout() {
     return Column(
+      key: const ValueKey('login'),
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
         _buildInputField(controller: _loginUsernameController, label: 'Username', hint: 'Enter terminal username'),
         const SizedBox(height: 16),
@@ -215,7 +396,9 @@ class _SynCalAuthPageState extends State<SynCalAuthPage> {
 
   Widget _buildRegisterFormLayout(bool isMismatch) {
     return Column(
+      key: const ValueKey('register'),
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
       children: [
         _buildInputField(controller: _regUsernameController, label: 'System Username', hint: 'e.g., user_juma'),
         const SizedBox(height: 16),
@@ -232,7 +415,7 @@ class _SynCalAuthPageState extends State<SynCalAuthPage> {
                 child: DropdownButtonHideUnderline(
                   child: DropdownButton<String>(
                     value: _selectedGender,
-                    dropdownColor: zinc950,
+                    dropdownColor: bgDark,
                     icon: const Icon(Icons.arrow_drop_down, color: zinc500),
                     style: const TextStyle(fontSize: 12, color: zinc400, fontWeight: FontWeight.w500),
                     onChanged: (String? value) {
@@ -305,8 +488,17 @@ class _SynCalAuthPageState extends State<SynCalAuthPage> {
         labelStyle: const TextStyle(color: zinc500, fontSize: 12),
         floatingLabelStyle: const TextStyle(color: zinc400, fontSize: 12),
         contentPadding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
-        filled: true,
-        fillColor: Colors.transparent,
+        filled: false,
+        suffixIcon: isPassword
+            ? IconButton(
+                icon: Icon(
+                  obscureText ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                  color: zinc500,
+                  size: 18,
+                ),
+                onPressed: onToggleVisibility,
+              )
+            : null,
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(100),
           borderSide: BorderSide(color: isErrorBorder ? Colors.redAccent.withValues(alpha: 0.6) : zinc800, width: 0.5),
@@ -322,17 +514,24 @@ class _SynCalAuthPageState extends State<SynCalAuthPage> {
   Widget _buildSubmitButton({required String label, required VoidCallback onPressed}) {
     return SizedBox(
       width: double.infinity,
+      height: 52,
       child: ElevatedButton(
         onPressed: _isLoading ? null : onPressed,
         style: ElevatedButton.styleFrom(
           backgroundColor: Colors.white,
-          foregroundColor: zinc950,
+          foregroundColor: Colors.black,
           disabledBackgroundColor: Colors.white.withValues(alpha: 0.5),
           elevation: 0,
-          padding: const EdgeInsets.symmetric(vertical: 18),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
         ),
-        child: Text(label.toUpperCase(), style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, letterSpacing: 1)),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: Text(
+            label,
+            key: ValueKey(label),
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          ),
+        ),
       ),
     );
   }
@@ -350,6 +549,34 @@ class _SynCalAuthPageState extends State<SynCalAuthPage> {
         text,
         style: TextStyle(fontSize: 11, fontWeight: FontWeight.w500, color: baseColor.withValues(alpha: 0.9)),
         textAlign: TextAlign.center,
+      ),
+    );
+  }
+}
+
+/// Soft blurred glow circle used as ambient background decoration, echoing
+/// the frosted, layered visual language of the onboarding screen's scrims.
+class _GlowBlob extends StatelessWidget {
+  final Color color;
+  final double size;
+
+  const _GlowBlob({required this.color, required this.size});
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: ClipRRect(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 60, sigmaY: 60),
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: color,
+            ),
+          ),
+        ),
       ),
     );
   }

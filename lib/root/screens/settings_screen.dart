@@ -5,10 +5,22 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:auto_start_flutter/auto_start_flutter.dart';
 
 import '/core/api_client.dart';
 import '../../services/version_check_service.dart';
 import '../app_routes.dart';
+
+/// ── Shared palette, identical to HomeScreen's _Palette so every screen
+/// reads as one continuous surface.
+class _Palette {
+  static const Color bg = Color(0xFF1C1C1E);
+  static const Color surface = Color(0xFF18181B);
+  static const Color hairline = Color(0xFF3F3F46);
+  static const Color muted = Color(0xFF71717A);
+  static const Color mutedLight = Color(0xFFA1A1AA);
+}
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -18,24 +30,62 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  static const Color zinc950 = Color(0xFF09090B);
-  static const Color zinc900 = Color(0xFF18181B);
-  static const Color zinc800 = Color(0xFF27272A);
-  static const Color zinc700 = Color(0xFF3F3F46);
-  static const Color zinc500 = Color(0xFF71717A);
-  static const Color zinc400 = Color(0xFFA1A1AA);
-
   String _appVersion = '1.0.0';
   String _SynCalId = 'Not linked';
   String _username = '';
   bool _checkingUpdate = false;
   String? _latestVersion;
+  bool _unkillableMode = false;
 
   @override
   void initState() {
     super.initState();
     _loadAppVersion();
     _loadUserInfo();
+    _loadUnkillableMode();
+  }
+
+  Future<void> _loadUnkillableMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _unkillableMode = prefs.getBool('unkillable_mode_enabled') ?? false;
+    });
+  }
+
+  Future<void> _toggleUnkillableMode(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('unkillable_mode_enabled', value);
+    if (!mounted) return;
+    setState(() {
+      _unkillableMode = value;
+    });
+
+    const channel = MethodChannel('com.example.SynCal/sms');
+    try {
+      await channel.invokeMethod('toggleUnkillableMode', {'enabled': value});
+    } catch (e) {
+      debugPrint('Failed to toggle native service: $e');
+    }
+  }
+
+  Future<void> _requestAutoStart() async {
+    try {
+      var isAvailable = await getAutoStartPermission();
+      if (!isAvailable) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Auto-start is already enabled or not supported on this device.')),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to open Auto-Start settings: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _loadAppVersion() async {
@@ -80,7 +130,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Update check failed'), backgroundColor: Colors.redAccent),
+          const SnackBar(content: Text('Update check failed'), backgroundColor: Colors.redAccent),
         );
       }
     } finally {
@@ -92,20 +142,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: zinc900,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: _Palette.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+        ),
         title: const Text(
           'Logout & Unlink',
-          style: TextStyle(color: Colors.white),
+          style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
         ),
-        content: const Text(
+        content: Text(
           'Are you sure you want to logout and unlink your account?\n\nThis action cannot be undone.',
-          style: TextStyle(color: zinc400),
+          style: TextStyle(color: _Palette.mutedLight, height: 1.4),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Cancel', style: TextStyle(color: zinc400)),
+            child: Text('Cancel', style: TextStyle(color: _Palette.mutedLight)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
@@ -148,6 +201,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  // ── Profile drawer restyled with the same glass surface, hairline
+  // border, and pill button treatment as HomeScreen's compose sheet.
   void _showProfileDrawer() {
     final user = ApiClient.instance.linkedUser;
     if (user == null) {
@@ -165,15 +220,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return FractionallySizedBox(
           heightFactor: 0.72,
           child: ClipRRect(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
             child: BackdropFilter(
-              filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+              filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
               child: Container(
                 decoration: BoxDecoration(
-                  color: zinc900,
-                  borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                  color: _Palette.surface.withValues(alpha: 0.95),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
                   border: Border(
-                    top: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
+                    top: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
                   ),
                 ),
                 child: Column(
@@ -184,7 +239,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         width: 36,
                         height: 4,
                         decoration: BoxDecoration(
-                          color: zinc700,
+                          color: _Palette.hairline,
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
@@ -192,19 +247,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     const SizedBox(height: 20),
                     Expanded(
                       child: SingleChildScrollView(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        padding: const EdgeInsets.symmetric(horizontal: 22),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            CircleAvatar(
-                              radius: 48,
-                              backgroundColor: Colors.white.withValues(alpha: 0.08),
+                            Container(
+                              width: 96,
+                              height: 96,
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.06),
+                                shape: BoxShape.circle,
+                                border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+                              ),
+                              alignment: Alignment.center,
                               child: Text(
                                 _username.isNotEmpty ? _username[0].toUpperCase() : '?',
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 36,
-                                  fontWeight: FontWeight.bold,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
                             ),
@@ -214,26 +275,27 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 22,
-                                fontWeight: FontWeight.bold,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.3,
                               ),
                             ),
                             const SizedBox(height: 6),
                             Text(
                               user.syncalId,
                               style: TextStyle(
-                                color: zinc400,
-                                fontSize: 14,
+                                color: _Palette.muted,
+                                fontSize: 13,
                                 fontFamily: 'monospace',
                                 letterSpacing: 0.5,
                               ),
                             ),
-                            const SizedBox(height: 32),
+                            const SizedBox(height: 28),
                             _profileInfoTile(
                               icon: Icons.fingerprint_rounded,
                               label: 'SynCal ID',
                               value: user.syncalId,
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 10),
                             _profileInfoTile(
                               icon: Icons.person_rounded,
                               label: 'Username',
@@ -245,26 +307,38 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 5),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _logout,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.redAccent,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(30),
+                        child: BackdropFilter(
+                          filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                          child: Container(
+                            width: double.infinity,
+                            decoration: BoxDecoration(
+                              color: Colors.redAccent.withValues(alpha: 0.12),
                               borderRadius: BorderRadius.circular(30),
+                              border: Border.all(color: Colors.redAccent.withValues(alpha: 0.2), width: 0.5),
                             ),
-                            elevation: 0,
-                          ),
-                          child: const Text(
-                            'Logout & Unlink',
-                            style: TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.bold,
-                              letterSpacing: 0.5,
+                            child: SizedBox(
+                              height: 52,
+                              child: ElevatedButton(
+                                onPressed: _logout,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.transparent,
+                                  shadowColor: Colors.transparent,
+                                  padding: EdgeInsets.zero,
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                                ),
+                                child: const Text(
+                                  'Logout & Unlink',
+                                  style: TextStyle(
+                                    color: Colors.redAccent,
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.3,
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -286,11 +360,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
     required String value,
   }) {
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.03),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
       ),
       child: Row(
         children: [
@@ -299,9 +374,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             height: 36,
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.06),
-              borderRadius: BorderRadius.circular(10),
+              shape: BoxShape.circle,
             ),
-            child: Icon(icon, color: zinc400, size: 18),
+            child: Icon(icon, color: Colors.white70, size: 18),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -310,7 +385,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 Text(
                   label,
-                  style: TextStyle(color: zinc400, fontSize: 12, fontWeight: FontWeight.w500),
+                  style: TextStyle(color: _Palette.muted, fontSize: 12, fontWeight: FontWeight.w500),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -326,6 +401,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  // ── Report modal restyled with the same glass sheet + pill buttons as
+  // HomeScreen's compose sheet.
   void _showReportProblemModal(BuildContext context) {
     final controller = TextEditingController();
     bool isSubmitting = false;
@@ -340,16 +417,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
             return Padding(
               padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
               child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
                 child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+                  filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
                   child: Container(
-                    padding: const EdgeInsets.fromLTRB(24, 28, 24, 32),
+                    padding: const EdgeInsets.fromLTRB(22, 14, 22, 28),
                     decoration: BoxDecoration(
-                      color: zinc900,
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+                      color: _Palette.surface.withValues(alpha: 0.95),
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
                       border: Border(
-                        top: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
+                        top: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
                       ),
                     ),
                     child: Column(
@@ -360,117 +437,139 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           child: Container(
                             width: 36,
                             height: 4,
-                            margin: const EdgeInsets.only(bottom: 16),
-                            decoration: BoxDecoration(color: zinc700, borderRadius: BorderRadius.circular(2)),
+                            margin: const EdgeInsets.only(bottom: 18),
+                            decoration: BoxDecoration(color: _Palette.hairline, borderRadius: BorderRadius.circular(2)),
                           ),
                         ),
                         const Text(
                           'Report a Problem',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.2),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Describe the issue you\'re experiencing.',
-                          style: TextStyle(color: zinc400, fontSize: 13),
+                          "Describe the issue you're experiencing.",
+                          style: TextStyle(color: _Palette.muted, fontSize: 13),
                         ),
-                        const SizedBox(height: 20),
-                        TextField(
-                          controller: controller,
-                          maxLines: 5,
-                          style: const TextStyle(color: Colors.white, fontSize: 14),
-                          cursorColor: Colors.white,
-                          decoration: InputDecoration(
-                            hintText: 'Describe the issue...',
-                            hintStyle: TextStyle(color: zinc500, fontSize: 13),
-                            filled: true,
-                            fillColor: zinc800,
-                            contentPadding: const EdgeInsets.all(16),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide(color: zinc700, width: 0.5),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(14),
-                              borderSide: BorderSide(color: zinc400, width: 0.5),
+                        const SizedBox(height: 18),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.06),
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+                          ),
+                          child: TextField(
+                            controller: controller,
+                            maxLines: 5,
+                            style: const TextStyle(color: Colors.white, fontSize: 14),
+                            cursorColor: Colors.white,
+                            decoration: InputDecoration(
+                              hintText: 'Describe the issue…',
+                              hintStyle: TextStyle(color: _Palette.muted, fontSize: 13),
+                              border: InputBorder.none,
+                              contentPadding: const EdgeInsets.all(16),
                             ),
                           ),
                         ),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 20),
                         Row(
                           children: [
                             Expanded(
-                              child: TextButton(
-                                style: TextButton.styleFrom(
-                                  padding: const EdgeInsets.symmetric(vertical: 14),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(30),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(30),
+                                child: BackdropFilter(
+                                  filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.05),
+                                      borderRadius: BorderRadius.circular(30),
+                                      border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+                                    ),
+                                    child: SizedBox(
+                                      height: 48,
+                                      child: TextButton(
+                                        style: TextButton.styleFrom(
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                                        ),
+                                        onPressed: () => Navigator.pop(ctx),
+                                        child: Text(
+                                          'Cancel',
+                                          style: TextStyle(color: _Palette.mutedLight, fontSize: 14.5, fontWeight: FontWeight.w600),
+                                        ),
+                                      ),
+                                    ),
                                   ),
-                                  backgroundColor: zinc800,
-                                ),
-                                onPressed: () => Navigator.pop(ctx),
-                                child: const Text(
-                                  'Cancel',
-                                  style: TextStyle(color: zinc400, fontSize: 15, fontWeight: FontWeight.w600),
                                 ),
                               ),
                             ),
-                            const SizedBox(width: 12),
+                            const SizedBox(width: 10),
                             Expanded(
-                              child: ElevatedButton(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.white,
-                                  foregroundColor: zinc950,
-                                  padding: const EdgeInsets.symmetric(vertical: 14),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(30),
-                                  ),
-                                  elevation: 0,
-                                ),
-                                onPressed: isSubmitting
-                                    ? null
-                                    : () async {
-                                        final desc = controller.text.trim();
-                                        if (desc.isEmpty) return;
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(30),
+                                child: BackdropFilter(
+                                  filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                                  child: Container(
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(30),
+                                      border: Border.all(color: Colors.white.withValues(alpha: 0.15), width: 0.5),
+                                    ),
+                                    child: SizedBox(
+                                      height: 48,
+                                      child: ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.transparent,
+                                          shadowColor: Colors.transparent,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                                        ),
+                                        onPressed: isSubmitting
+                                            ? null
+                                            : () async {
+                                                final desc = controller.text.trim();
+                                                if (desc.isEmpty) return;
 
-                                        setModalState(() => isSubmitting = true);
+                                                setModalState(() => isSubmitting = true);
 
-                                        try {
-                                          final success = await ApiClient.instance.reportProblem(desc);
-                                          if (mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(
-                                                content: Text(
-                                                  success
-                                                      ? 'Problem reported successfully. Thank you!'
-                                                      : 'Report saved offline. Will sync when online.',
-                                                ),
-                                                backgroundColor: success ? Colors.green : Colors.orangeAccent,
+                                                try {
+                                                  final success = await ApiClient.instance.reportProblem(desc);
+                                                  if (mounted) {
+                                                    ScaffoldMessenger.of(context).showSnackBar(
+                                                      SnackBar(
+                                                        content: Text(
+                                                          success
+                                                              ? 'Problem reported successfully. Thank you!'
+                                                              : 'Report saved offline. Will sync when online.',
+                                                        ),
+                                                        backgroundColor: success ? Colors.green : Colors.orangeAccent,
+                                                      ),
+                                                    );
+                                                  }
+                                                } catch (e) {
+                                                  if (mounted) {
+                                                    ScaffoldMessenger.of(context).showSnackBar(
+                                                      SnackBar(
+                                                        content: Text('Failed to report: $e'),
+                                                        backgroundColor: Colors.redAccent,
+                                                      ),
+                                                    );
+                                                  }
+                                                } finally {
+                                                  if (ctx.mounted) Navigator.pop(ctx);
+                                                }
+                                              },
+                                        child: isSubmitting
+                                            ? const SizedBox(
+                                                width: 18,
+                                                height: 18,
+                                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                              )
+                                            : const Text(
+                                                'Submit',
+                                                style: TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w600, letterSpacing: 0.2),
                                               ),
-                                            );
-                                          }
-                                        } catch (e) {
-                                          if (mounted) {
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              SnackBar(
-                                                content: Text('Failed to report: $e'),
-                                                backgroundColor: Colors.redAccent,
-                                              ),
-                                            );
-                                          }
-                                        } finally {
-                                          if (mounted) Navigator.pop(ctx);
-                                        }
-                                      },
-                                child: isSubmitting
-                                    ? const SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black54),
-                                      )
-                                    : const Text(
-                                        'Submit',
-                                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
                                       ),
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
                           ],
@@ -492,132 +591,149 @@ class _SettingsScreenState extends State<SettingsScreen> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
-        backgroundColor: zinc950,
+        backgroundColor: _Palette.bg,
         extendBody: true,
-        appBar: PreferredSize(
-          preferredSize: const Size.fromHeight(kToolbarHeight),
-          child: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            automaticallyImplyLeading: false,
-            centerTitle: true,
-            title: const Text(
-              'Settings',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
+        body: SafeArea(
+          bottom: false,
+          child: Stack(
+            children: [
+              CustomScrollView(
+                physics: const BouncingScrollPhysics(
+                  parent: AlwaysScrollableScrollPhysics(),
+                ),
+                slivers: [
+                  SliverToBoxAdapter(child: _buildHeader()),
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 100),
+                    sliver: SliverList.list(
+                      children: [
+                        _sectionLabel('Account'),
+                        const SizedBox(height: 8),
+                        _sectionCard([
+                          _settingsTile(
+                            icon: Icons.fingerprint_rounded,
+                            title: 'SynCal ID',
+                            subtitle: _SynCalId,
+                            onTap: _showProfileDrawer,
+                          ),
+                        ]),
+                        const SizedBox(height: 22),
+                        _sectionLabel('Background Execution (Advanced)'),
+                        const SizedBox(height: 8),
+                        _sectionCard([
+                          _settingsTile(
+                            icon: Icons.shield_rounded,
+                            title: 'Enable Auto-Start',
+                            subtitle: 'Prevent the OS from delaying your SMS',
+                            onTap: _requestAutoStart,
+                            trailing: Icon(Icons.open_in_new_rounded, color: Colors.white.withValues(alpha: 0.25), size: 14),
+                          ),
+                          _divider(),
+                          _settingsTile(
+                            icon: Icons.battery_alert_rounded,
+                            title: 'Unkillable Mode',
+                            subtitle: 'Forces background service to stay alive',
+                            onTap: () => _toggleUnkillableMode(!_unkillableMode),
+                            trailing: Switch(
+                              value: _unkillableMode,
+                              onChanged: _toggleUnkillableMode,
+                              activeColor: Colors.greenAccent,
+                            ),
+                          ),
+                        ]),
+                        const SizedBox(height: 22),
+                        _sectionLabel('Updates'),
+                        const SizedBox(height: 8),
+                        _sectionCard([
+                          _settingsTile(
+                            icon: Icons.system_update_rounded,
+                            title: 'Check for Updates',
+                            subtitle: _latestVersion != null ? 'v$_latestVersion available' : null,
+                            onTap: _checkingUpdate ? null : _checkForUpdates,
+                            trailing: _checkingUpdate
+                                ? const SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white38),
+                                  )
+                                : null,
+                          ),
+                        ]),
+                        const SizedBox(height: 22),
+                        _sectionLabel('Support'),
+                        const SizedBox(height: 8),
+                        _sectionCard([
+                          _settingsTile(
+                            icon: Icons.bug_report_rounded,
+                            title: 'Report a Problem',
+                            onTap: () => _showReportProblemModal(context),
+                          ),
+                        ]),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ),
-            leading: GestureDetector(
-              onTap: () => context.pop(),
-              child: Container(
-                margin: const EdgeInsets.only(left: 16),
-                padding: const EdgeInsets.all(10),
-                child: const Icon(
-                  Icons.arrow_back_ios_new_rounded,
-                  color: Colors.white,
-                  size: 20,
+              Positioned(
+                bottom: 20,
+                left: 0,
+                right: 0,
+                child: Text(
+                  'SynCal v$_appVersion',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.2),
+                    fontSize: 12.5,
+                    letterSpacing: 0.3,
+                  ),
                 ),
               ),
-            ),
-            shape: Border(
-              bottom: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
-            ),
+            ],
           ),
         ),
-        body: Stack(
-          children: [
-            ListView(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 100),
-              children: [
-                _sectionLabel('Account'),
-                const SizedBox(height: 8),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.03),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: _settingsTile(
-                    icon: Icons.fingerprint_rounded,
-                    title: 'SynCal ID',
-                    subtitle: _SynCalId,
-                    onTap: _showProfileDrawer,
-                    trailing: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                _sectionLabel('Updates'),
-                const SizedBox(height: 8),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.03),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: _settingsTile(
-                    icon: Icons.system_update_rounded,
-                    title: 'Check for Updates',
-                    subtitle: _latestVersion != null ? 'v$_latestVersion available' : null,
-                    onTap: _checkingUpdate ? null : _checkForUpdates,
-                    trailing: _checkingUpdate
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white38),
-                          )
-                        : const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                _sectionLabel('Support'),
-                const SizedBox(height: 8),
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.03),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
-                  ),
-                  clipBehavior: Clip.antiAlias,
-                  child: _settingsTile(
-                    icon: Icons.bug_report_rounded,
-                    title: 'Report a Problem',
-                    onTap: () => _showReportProblemModal(context),
-                    trailing: const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
-                  ),
-                ),
-              ],
-            ),
-            Positioned(
-              bottom: 30,
-              left: 0,
-              right: 0,
-              child: Text(
-                'SynCal v$_appVersion',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.2),
-                  fontSize: 13,
-                  letterSpacing: 0.3,
-                ),
+      ),
+    );
+  }
+
+  // ── Header matching HomeScreen: big title left, glass back chip right.
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 18),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          GestureDetector(
+            onTap: () => context.pop(),
+            child: Container(
+              width: 38,
+              height: 38,
+              margin: const EdgeInsets.only(right: 14),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
               ),
+              child: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 19),
             ),
-          ],
-        ),
+          ),
+          const Expanded(
+            child: Text(
+              'Settings',
+              style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.5),
+            ),
+          ),
+        ],
       ),
     );
   }
 
   Widget _sectionLabel(String label) {
     return Padding(
-      padding: const EdgeInsets.only(left: 4),
+      padding: const EdgeInsets.only(left: 2),
       child: Text(
         label.toUpperCase(),
         style: TextStyle(
-          color: zinc500,
+          color: _Palette.muted,
           fontSize: 11.5,
           fontWeight: FontWeight.w600,
           letterSpacing: 1.0,
@@ -625,6 +741,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
   }
+
+  // ── Section card matching HomeScreen's glass surfaces: translucent
+  // fill, hairline border, rounded corners.
+  Widget _sectionCard(List<Widget> children) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: children),
+    );
+  }
+
+  Widget _divider() => Divider(color: Colors.white.withValues(alpha: 0.06), height: 1, indent: 64);
 
   Widget _settingsTile({
     required IconData icon,
@@ -638,17 +770,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
       splashColor: Colors.white.withValues(alpha: 0.05),
       highlightColor: Colors.white.withValues(alpha: 0.03),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
         child: Row(
           children: [
             Container(
-              width: 36,
-              height: 36,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.06),
-                borderRadius: BorderRadius.circular(10),
+                shape: BoxShape.circle,
               ),
-              child: Icon(icon, color: zinc400, size: 18),
+              child: Icon(icon, color: Colors.white70, size: 18),
             ),
             const SizedBox(width: 14),
             Expanded(
@@ -657,13 +789,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 children: [
                   Text(
                     title,
-                    style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w500),
+                    style: const TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w600),
                   ),
                   if (subtitle != null) ...[
                     const SizedBox(height: 2),
                     Text(
-                      subtitle!,
-                      style: TextStyle(color: zinc400, fontSize: 12.5),
+                      subtitle,
+                      style: TextStyle(color: _Palette.mutedLight, fontSize: 12.5),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -671,7 +803,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ],
               ),
             ),
-            if (trailing != null) trailing!,
+            if (trailing != null)
+              trailing
+            else if (onTap != null)
+              Icon(Icons.arrow_forward_ios_rounded, color: Colors.white.withValues(alpha: 0.25), size: 13),
           ],
         ),
       ),
