@@ -29,13 +29,14 @@ class ScheduledMessageAdapter extends TypeAdapter<ScheduledMessage> {
       sentCount: fields[9] as int?,
       status: fields[10] as ScheduleStatus,
       completedAt: fields[11] as DateTime?,
+      repeatIntervalMinutes: fields[12] as int?,
     );
   }
 
   @override
   void write(BinaryWriter writer, ScheduledMessage obj) {
     writer
-      ..writeByte(12)
+      ..writeByte(13)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -59,7 +60,9 @@ class ScheduledMessageAdapter extends TypeAdapter<ScheduledMessage> {
       ..writeByte(10)
       ..write(obj.status)
       ..writeByte(11)
-      ..write(obj.completedAt);
+      ..write(obj.completedAt)
+      ..writeByte(12)
+      ..write(obj.repeatIntervalMinutes);
   }
 
   @override
@@ -88,6 +91,8 @@ class RepetitionAdapter extends TypeAdapter<Repetition> {
         return Repetition.weekly;
       case 3:
         return Repetition.monthly;
+      case 4:
+        return Repetition.custom;
       default:
         return Repetition.none;
     }
@@ -107,6 +112,9 @@ class RepetitionAdapter extends TypeAdapter<Repetition> {
         break;
       case Repetition.monthly:
         writer.writeByte(3);
+        break;
+      case Repetition.custom:
+        writer.writeByte(4);
         break;
     }
   }

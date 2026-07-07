@@ -6,6 +6,10 @@ import 'package:flutter/material.dart';
 /// glass aesthetic (#1C1C1E surfaces, translucent white fills, hairline
 /// borders, rounded pill CTAs).
 ///
+/// Time format (12h vs 24h) is detected automatically from the device's
+/// locale/system setting via MediaQuery.alwaysUse24HourFormat — no manual
+/// toggle needed.
+///
 /// Usage:
 /// final result = await showCustomDateTimePicker(
 ///   context: context,
@@ -18,6 +22,7 @@ Future<DateTime?> showCustomDateTimePicker({
   DateTime? firstDate,
   DateTime? lastDate,
 }) {
+  final use24Hour = MediaQuery.of(context).alwaysUse24HourFormat;
   return showModalBottomSheet<DateTime>(
     context: context,
     isScrollControlled: true,
@@ -27,6 +32,7 @@ Future<DateTime?> showCustomDateTimePicker({
         initialDateTime: initialDateTime,
         firstDate: firstDate ?? DateTime.now(),
         lastDate: lastDate ?? DateTime.now().add(const Duration(days: 365)),
+        use24Hour: use24Hour,
       );
     },
   );
@@ -43,10 +49,12 @@ class _CustomDateTimeSheet extends StatefulWidget {
   final DateTime initialDateTime;
   final DateTime firstDate;
   final DateTime lastDate;
+  final bool use24Hour;
   const _CustomDateTimeSheet({
     required this.initialDateTime,
     required this.firstDate,
     required this.lastDate,
+    required this.use24Hour,
   });
 
   @override
@@ -100,6 +108,18 @@ class _CustomDateTimeSheetState extends State<_CustomDateTimeSheet> {
     setState(() {
       _visibleMonth = DateTime(_visibleMonth.year, _visibleMonth.month + delta);
     });
+  }
+
+  // ── Formats the confirmed time preview/label according to the detected
+  // device format (24h: "14:05", 12h: "2:05 PM").
+  String _formatHourMinute(int hour24, int minute) {
+    final mm = minute.toString().padLeft(2, '0');
+    if (widget.use24Hour) {
+      return '${hour24.toString().padLeft(2, '0')}:$mm';
+    }
+    final isPm = hour24 >= 12;
+    final hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12;
+    return '$hour12:$mm ${isPm ? 'PM' : 'AM'}';
   }
 
   @override
@@ -168,13 +188,14 @@ class _CustomDateTimeSheetState extends State<_CustomDateTimeSheet> {
   }
 
   // ── Segmented tab control (Date / Time), same visual language as the
-  // SIM-card segmented selector in the compose sheet.
+  // SIM-card segmented selector in the compose sheet. Time tab shows the
+  // currently selected time formatted per the device's 12h/24h setting.
   Widget _buildSegmentedTabs() {
     return Row(
       children: [
         Expanded(child: _tabButton('Date', 0)),
         const SizedBox(width: 8),
-        Expanded(child: _tabButton('Time', 1)),
+        Expanded(child: _tabButton(_formatHourMinute(_hour24, _minute), 1)),
       ],
     );
   }
@@ -313,9 +334,50 @@ class _CustomDateTimeSheetState extends State<_CustomDateTimeSheet> {
     );
   }
 
-  // ── Custom scrolling wheel-style time selector (hour / minute / AM-PM),
+  // ── Custom scrolling wheel-style time selector (hour / minute [/ AM-PM]),
   // hand-built with ListWheelScrollView instead of the Material time picker.
+  // Layout adapts automatically: 24h shows only Hour:Minute (00-23), 12h
+  // shows Hour:Minute + an AM/PM wheel — based on widget.use24Hour, which
+  // was detected from the device's system setting.
   Widget _buildTimeTab({required Key key}) {
+    if (widget.use24Hour) {
+      return Column(
+        key: key,
+        children: [
+          SizedBox(
+            height: 160,
+            child: Row(
+              children: [
+                Expanded(
+                  child: _WheelColumn(
+                    itemCount: 24,
+                    initialIndex: _hour24,
+                    labelBuilder: (i) => i.toString().padLeft(2, '0'),
+                    onChanged: (i) => setState(() => _hour24 = i),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    ':',
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 22, fontWeight: FontWeight.w700),
+                  ),
+                ),
+                Expanded(
+                  child: _WheelColumn(
+                    itemCount: 60,
+                    initialIndex: _minute,
+                    labelBuilder: (i) => i.toString().padLeft(2, '0'),
+                    onChanged: (i) => setState(() => _minute = i),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
     final isPm = _hour24 >= 12;
     final hour12 = _hour24 % 12 == 0 ? 12 : _hour24 % 12;
 

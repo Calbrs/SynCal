@@ -9,6 +9,16 @@ import 'package:flutter_contacts/flutter_contacts.dart' as fc;
 import '../models/contact.dart';
 import '/core/api_client.dart';
 
+/// ── Shared palette, identical to HomeScreen's _Palette so every screen
+/// reads as one continuous surface.
+class _Palette {
+  static const Color bg = Color(0xFF1C1C1E);
+  static const Color surface = Color(0xFF18181B);
+  static const Color hairline = Color(0xFF3F3F46);
+  static const Color muted = Color(0xFF71717A);
+  static const Color mutedLight = Color(0xFFA1A1AA);
+}
+
 class ShimmerLoading extends StatefulWidget {
   final Widget child;
   final bool isLoading;
@@ -59,13 +69,6 @@ class CreateEventScreen extends StatefulWidget {
 }
 
 class _CreateEventScreenState extends State<CreateEventScreen> with SingleTickerProviderStateMixin {
-  static const Color zinc950 = Color(0xFF09090B);
-  static const Color zinc900 = Color(0xFF18181B);
-  static const Color zinc800 = Color(0xFF27272A);
-  static const Color zinc700 = Color(0xFF3F3F46);
-  static const Color zinc500 = Color(0xFF71717A);
-  static const Color zinc400 = Color(0xFFA1A1AA);
-
   final _searchController = TextEditingController();
   final _contactBox = Hive.box<Contact>('contacts');
   List<Contact> contacts = [];
@@ -107,12 +110,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
   Future<void> _loadSyncEnabled() async {
     final settingsBox = Hive.box('settings');
     final enabled = settingsBox.get('syncEnabled', defaultValue: false) as bool;
+    if (!mounted) return;
     setState(() => _syncEnabled = enabled);
   }
 
   Future<void> _saveSyncEnabled(bool value) async {
     final settingsBox = Hive.box('settings');
     await settingsBox.put('syncEnabled', value);
+    if (!mounted) return;
     setState(() => _syncEnabled = value);
   }
 
@@ -189,6 +194,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
 
   void _toggleMenu() => _menuOpen ? _closeMenu() : _openMenu();
 
+  // ── Popup menu restyled to match HomeScreen's _MenuPopupCard: same
+  // glass surface, hairline border, blur, item spacing.
   void _openMenu() {
     setState(() => _menuOpen = true);
     final box = _menuButtonKey.currentContext?.findRenderObject() as RenderBox?;
@@ -217,44 +224,45 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
                 child: Material(
                   color: Colors.transparent,
                   child: ClipRRect(
-                    borderRadius: BorderRadius.circular(16),
+                    borderRadius: BorderRadius.circular(18),
                     child: BackdropFilter(
-                      filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+                      filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
                       child: Container(
                         width: 260,
                         decoration: BoxDecoration(
-                          color: zinc900,
-                          borderRadius: BorderRadius.circular(16),
+                          color: _Palette.surface.withValues(alpha: 0.94),
+                          borderRadius: BorderRadius.circular(18),
                           border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
                           boxShadow: [
                             BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.4),
-                              blurRadius: 20,
+                              color: Colors.black.withValues(alpha: 0.35),
+                              blurRadius: 24,
                               offset: const Offset(0, 8),
                             )
                           ],
                         ),
+                        padding: const EdgeInsets.symmetric(vertical: 6),
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                              padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
                               child: Row(
                                 children: [
-                                  Icon(Icons.person_outline, color: Colors.white54, size: 18),
-                                  const SizedBox(width: 8),
+                                  Icon(Icons.person_outline_rounded, color: Colors.white54, size: 17),
+                                  const SizedBox(width: 10),
                                   Text(
                                     username.isNotEmpty ? username : 'Not linked',
                                     style: TextStyle(
                                       color: username.isNotEmpty ? Colors.white : Colors.white38,
-                                      fontSize: 14,
+                                      fontSize: 13.5,
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),
                                 ],
                               ),
                             ),
-                            const Divider(height: 1, thickness: 0.5, color: Colors.white24),
+                            _menuDivider(),
                             _buildMenuItem(
                               icon: Icons.person_add_outlined,
                               label: 'Add new contact',
@@ -290,6 +298,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
     _menuAnimController.forward();
   }
 
+  Widget _menuDivider() => Divider(height: 1, thickness: 0.5, color: Colors.white.withValues(alpha: 0.06), indent: 14, endIndent: 14);
+
   Widget _buildMenuItem({
     required IconData icon,
     required String label,
@@ -300,45 +310,36 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
       children: [
         InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
               children: [
-                Icon(icon, color: Colors.white70, size: 20),
+                Icon(icon, color: Colors.white70, size: 17),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     label,
-                    style: const TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w500),
+                    style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
                   ),
                 ),
-                const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white30, size: 14),
               ],
             ),
           ),
         ),
-        if (showDivider)
-          Divider(
-            height: 1,
-            thickness: 0.5,
-            color: Colors.white.withValues(alpha: 0.08),
-            indent: 16,
-            endIndent: 16,
-          ),
+        if (showDivider) _menuDivider(),
       ],
     );
   }
 
   Widget _buildSyncToggleItem(bool isLinked) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      padding: const EdgeInsets.fromLTRB(14, 6, 10, 6),
       child: Row(
         children: [
           Icon(
             _syncEnabled ? Icons.sync_rounded : Icons.sync_disabled_rounded,
             color: _syncEnabled ? Colors.greenAccent : Colors.grey,
-            size: 20,
+            size: 18,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -347,12 +348,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
               children: [
                 Text(
                   _syncEnabled ? 'Online Sync' : 'Sync Off',
-                  style: const TextStyle(color: Colors.white, fontSize: 14.5, fontWeight: FontWeight.w500),
+                  style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500),
                 ),
                 if (_lastSync != null && _syncEnabled)
                   Text(
                     'Last sync: ${_formatRelative(_lastSync!)}',
-                    style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 11.5),
+                    style: TextStyle(color: Colors.white.withValues(alpha: 0.4), fontSize: 11),
                   ),
                 if (!isLinked)
                   Text(
@@ -409,6 +410,8 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
     }
   }
 
+  // ── Password sheet restyled with HomeScreen's glass surface + pill
+  // buttons.
   Future<String?> _showPasswordDrawer() async {
     final controller = TextEditingController();
     bool obscure = true;
@@ -433,13 +436,13 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
             child: ClipRRect(
               borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
               child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+                filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
                 child: Container(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+                  padding: const EdgeInsets.fromLTRB(22, 14, 22, 28),
                   decoration: BoxDecoration(
-                    color: zinc900,
+                    color: _Palette.surface.withValues(alpha: 0.95),
                     borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-                    border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 0.5)),
+                    border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5)),
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -449,76 +452,65 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
                         child: Container(
                           width: 36,
                           height: 4,
-                          margin: const EdgeInsets.only(bottom: 16),
-                          decoration: BoxDecoration(color: zinc700, borderRadius: BorderRadius.circular(2)),
+                          margin: const EdgeInsets.only(bottom: 18),
+                          decoration: BoxDecoration(color: _Palette.hairline, borderRadius: BorderRadius.circular(2)),
                         ),
                       ),
                       const Text(
                         'Re-enter password',
-                        style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                        style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700, letterSpacing: -0.2),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       Text(
                         'Confirm your identity to enable sync',
-                        style: TextStyle(color: zinc400, fontSize: 13),
+                        style: TextStyle(color: _Palette.muted, fontSize: 13),
                       ),
-                      const SizedBox(height: 20),
-                      TextField(
-                        controller: controller,
-                        focusNode: focusNode,
-                        obscureText: obscure,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: InputDecoration(
-                          hintText: 'Password',
-                          hintStyle: TextStyle(color: zinc500),
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              obscure ? Icons.visibility_off : Icons.visibility,
-                              color: zinc400,
+                      const SizedBox(height: 18),
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.06),
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+                        ),
+                        child: TextField(
+                          controller: controller,
+                          focusNode: focusNode,
+                          obscureText: obscure,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            hintText: 'Password',
+                            hintStyle: TextStyle(color: _Palette.muted),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                obscure ? Icons.visibility_off : Icons.visibility,
+                                color: _Palette.mutedLight,
+                                size: 20,
+                              ),
+                              onPressed: () => setState(() => obscure = !obscure),
                             ),
-                            onPressed: () => setState(() => obscure = !obscure),
-                          ),
-                          filled: true,
-                          fillColor: zinc800,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide.none,
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: Colors.greenAccent),
+                            border: InputBorder.none,
+                            contentPadding: const EdgeInsets.all(16),
                           ),
                         ),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 20),
                       Row(
                         children: [
                           Expanded(
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: zinc800,
-                                foregroundColor: zinc400,
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                                elevation: 0,
-                              ),
+                            child: _glassPill(
+                              label: 'Cancel',
+                              filled: false,
                               onPressed: () {
                                 Navigator.pop(ctx);
                                 completer.complete(null);
                               },
-                              child: const Text('Cancel', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 10),
                           Expanded(
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.white,
-                                foregroundColor: zinc950,
-                                padding: const EdgeInsets.symmetric(vertical: 14),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                                elevation: 0,
-                              ),
+                            child: _glassPill(
+                              label: 'Confirm',
+                              filled: true,
                               onPressed: () {
                                 final pw = controller.text.trim();
                                 if (pw.isNotEmpty) {
@@ -526,7 +518,6 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
                                   completer.complete(pw);
                                 }
                               },
-                              child: const Text('Confirm', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                             ),
                           ),
                         ],
@@ -647,54 +638,36 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(color: zinc700, borderRadius: BorderRadius.circular(2)),
-                ),
-              ),
+              _sheetHandle(),
               const Text(
                 'Add New Contact',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.2),
               ),
               const SizedBox(height: 4),
               Text(
                 'Enter contact details',
-                style: TextStyle(color: zinc400, fontSize: 13),
+                style: TextStyle(color: _Palette.muted, fontSize: 13),
               ),
+              const SizedBox(height: 18),
+              _glassField(controller: nameCtrl, hint: 'Name'),
+              const SizedBox(height: 12),
+              _glassField(controller: phoneCtrl, hint: 'Phone Number', keyboardType: TextInputType.phone),
               const SizedBox(height: 20),
-              TextField(
-                controller: nameCtrl,
-                style: const TextStyle(color: Colors.white),
-                decoration: _inputDecoration('Name'),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: phoneCtrl,
-                style: const TextStyle(color: Colors.white),
-                keyboardType: TextInputType.phone,
-                decoration: _inputDecoration('Phone Number'),
-              ),
-              const SizedBox(height: 24),
               Row(
                 children: [
                   Expanded(
-                    child: _pillButton(
-                      'Cancel',
-                      zinc800,
-                      zinc400,
-                      () => Navigator.pop(context),
+                    child: _glassPill(
+                      label: 'Cancel',
+                      filled: false,
+                      onPressed: () => Navigator.pop(context),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: _pillButton(
-                      'Save',
-                      Colors.white,
-                      zinc950,
-                      () {
+                    child: _glassPill(
+                      label: 'Save',
+                      filled: true,
+                      onPressed: () {
                         final name = nameCtrl.text.trim();
                         final phone = phoneCtrl.text.trim();
                         if (name.isEmpty || phone.isEmpty) return;
@@ -739,43 +712,29 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(color: zinc700, borderRadius: BorderRadius.circular(2)),
-                ),
-              ),
+              _sheetHandle(),
               Text(
                 'Add Phone for ${contact.name}',
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.2),
               ),
+              const SizedBox(height: 18),
+              _glassField(controller: phoneCtrl, hint: 'New Phone Number', keyboardType: TextInputType.phone),
               const SizedBox(height: 20),
-              TextField(
-                controller: phoneCtrl,
-                style: const TextStyle(color: Colors.white),
-                keyboardType: TextInputType.phone,
-                decoration: _inputDecoration('New Phone Number'),
-              ),
-              const SizedBox(height: 24),
               Row(
                 children: [
                   Expanded(
-                    child: _pillButton(
-                      'Cancel',
-                      zinc800,
-                      zinc400,
-                      () => Navigator.pop(context),
+                    child: _glassPill(
+                      label: 'Cancel',
+                      filled: false,
+                      onPressed: () => Navigator.pop(context),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: _pillButton(
-                      'Add',
-                      Colors.white,
-                      zinc950,
-                      () {
+                    child: _glassPill(
+                      label: 'Add',
+                      filled: true,
+                      onPressed: () {
                         final p = phoneCtrl.text.trim();
                         if (p.isEmpty) return;
                         final msg = _checkDuplicate(contact.name, p, excludeContact: contact);
@@ -820,37 +779,22 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(
-                child: Container(
-                  width: 36,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 16),
-                  decoration: BoxDecoration(color: zinc700, borderRadius: BorderRadius.circular(2)),
-                ),
-              ),
+              _sheetHandle(),
               const Text(
                 'Edit Contact',
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.2),
               ),
-              const SizedBox(height: 20),
-              TextField(
-                controller: nameCtrl,
-                style: const TextStyle(color: Colors.white),
-                decoration: _inputDecoration('Name'),
-              ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
+              _glassField(controller: nameCtrl, hint: 'Name'),
+              const SizedBox(height: 12),
               Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Expanded(
-                    child: TextField(
-                      controller: p1Ctrl,
-                      style: const TextStyle(color: Colors.white),
-                      keyboardType: TextInputType.phone,
-                      decoration: _inputDecoration('Phone Number 1'),
-                    ),
+                    child: _glassField(controller: p1Ctrl, hint: 'Phone Number 1', keyboardType: TextInputType.phone),
                   ),
                   if (old.phones.length > 1) ...[
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     IconButton(
                       icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent),
                       onPressed: () => _showRemoveNumberConfirmation(old, 0, context),
@@ -859,18 +803,14 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
                 ],
               ),
               if (old.phones.length > 1) ...[
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     Expanded(
-                      child: TextField(
-                        controller: p2Ctrl,
-                        style: const TextStyle(color: Colors.white),
-                        keyboardType: TextInputType.phone,
-                        decoration: _inputDecoration('Phone Number 2'),
-                      ),
+                      child: _glassField(controller: p2Ctrl, hint: 'Phone Number 2', keyboardType: TextInputType.phone),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     IconButton(
                       icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent),
                       onPressed: () => _showRemoveNumberConfirmation(old, 1, context),
@@ -878,24 +818,22 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
                   ],
                 ),
               ],
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               Row(
                 children: [
                   Expanded(
-                    child: _pillButton(
-                      'Cancel',
-                      zinc800,
-                      zinc400,
-                      () => Navigator.pop(context),
+                    child: _glassPill(
+                      label: 'Cancel',
+                      filled: false,
+                      onPressed: () => Navigator.pop(context),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: _pillButton(
-                      'Save',
-                      Colors.white,
-                      zinc950,
-                      () {
+                    child: _glassPill(
+                      label: 'Save',
+                      filled: true,
+                      onPressed: () {
                         final name = nameCtrl.text.trim();
                         final p1 = p1Ctrl.text.trim();
                         final p2 = p2Ctrl.text.trim();
@@ -930,17 +868,20 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: zinc900,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Remove Number?', style: TextStyle(color: Colors.white)),
+        backgroundColor: _Palette.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+        ),
+        title: const Text('Remove Number?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
         content: Text(
           'Remove ${contact.phones[idx]}?',
-          style: TextStyle(color: Colors.white.withValues(alpha: 0.7)),
+          style: TextStyle(color: _Palette.mutedLight),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            child: Text('Cancel', style: TextStyle(color: _Palette.mutedLight)),
           ),
           TextButton(
             onPressed: () {
@@ -972,9 +913,12 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: zinc900,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Additional Number', style: TextStyle(color: Colors.white)),
+        backgroundColor: _Palette.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+        ),
+        title: const Text('Additional Number', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
         content: Text(
           contact.phones[1],
           style: const TextStyle(color: Colors.white, fontSize: 18),
@@ -982,54 +926,72 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Close', style: TextStyle(color: Colors.white70)),
+            child: Text('Close', style: TextStyle(color: _Palette.mutedLight)),
           ),
         ],
       ),
     );
   }
 
+  // ── Options sheet restyled with HomeScreen's glass surface + item list.
   void _showOptionsMenu(Contact contact) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       builder: (context) => Padding(
-        padding: const EdgeInsets.all(16),
-        child: Container(
-          decoration: BoxDecoration(
-            color: zinc900,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (contact.phones.length < 2)
-                ListTile(
-                  leading: const Icon(Icons.add_circle_outline, color: Colors.greenAccent),
-                  title: const Text('Add another number', style: TextStyle(color: Colors.white)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _showAddPhoneModal(contact);
-                  },
-                ),
-              ListTile(
-                leading: const Icon(Icons.edit_outlined, color: Colors.white70),
-                title: const Text('Edit contact', style: TextStyle(color: Colors.white)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showEditContactModal(contact);
-                },
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(20),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+            child: Container(
+              decoration: BoxDecoration(
+                color: _Palette.surface.withValues(alpha: 0.95),
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
               ),
-              ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                title: const Text('Delete contact', style: TextStyle(color: Colors.redAccent)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _showDeleteConfirmation(contact);
-                },
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (contact.phones.length < 2)
+                    _buildMenuItem(
+                      icon: Icons.add_circle_outline_rounded,
+                      label: 'Add another number',
+                      onTap: () {
+                        Navigator.pop(context);
+                        _showAddPhoneModal(contact);
+                      },
+                      showDivider: true,
+                    ),
+                  _buildMenuItem(
+                    icon: Icons.edit_outlined,
+                    label: 'Edit contact',
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showEditContactModal(contact);
+                    },
+                    showDivider: true,
+                  ),
+                  InkWell(
+                    onTap: () {
+                      Navigator.pop(context);
+                      _showDeleteConfirmation(contact);
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      child: Row(
+                        children: [
+                          Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 17),
+                          SizedBox(width: 12),
+                          Text('Delete contact', style: TextStyle(color: Colors.redAccent, fontSize: 14, fontWeight: FontWeight.w500)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1040,20 +1002,23 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        backgroundColor: zinc900,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Delete Contact?', style: TextStyle(color: Colors.white)),
+        backgroundColor: _Palette.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+        ),
+        title: const Text('Delete Contact?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
         content: Text(
           'Are you sure you want to permanently delete ${contact.name}?',
           style: TextStyle(
             color: Colors.white.withValues(alpha: 0.85),
-            fontWeight: FontWeight.bold,
+            fontWeight: FontWeight.w600,
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            child: Text('Cancel', style: TextStyle(color: _Palette.mutedLight)),
           ),
           TextButton(
             onPressed: () async {
@@ -1090,17 +1055,19 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
     _loadContacts();
   }
 
+  // ── Shared glass bottom-sheet shell, matching HomeScreen's compose
+  // sheet (sigmaX/Y: 30 blur, surface fill, hairline top border).
   Widget _glassSheet(Widget child) {
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 25, sigmaY: 25),
+        filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
         child: Container(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 32),
+          padding: const EdgeInsets.fromLTRB(22, 14, 22, 28),
           decoration: BoxDecoration(
-            color: zinc900,
+            color: _Palette.surface.withValues(alpha: 0.95),
             borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.06), width: 0.5)),
+            border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5)),
           ),
           child: child,
         ),
@@ -1108,40 +1075,78 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
     );
   }
 
-  InputDecoration _inputDecoration(String label) {
-    return InputDecoration(
-      labelText: label,
-      labelStyle: TextStyle(color: zinc400),
-      filled: true,
-      fillColor: zinc800,
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: zinc700),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: BorderSide(color: zinc700),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: Colors.white54),
+  Widget _sheetHandle() {
+    return Center(
+      child: Container(
+        width: 36,
+        height: 4,
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(color: _Palette.hairline, borderRadius: BorderRadius.circular(2)),
       ),
     );
   }
 
-  Widget _pillButton(String text, Color bg, Color fg, VoidCallback onPressed) {
-    return ElevatedButton(
-      style: ElevatedButton.styleFrom(
-        backgroundColor: bg,
-        foregroundColor: fg,
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-        elevation: 0,
+  // ── Glass text field, matching HomeScreen's compose-sheet input.
+  Widget _glassField({
+    required TextEditingController controller,
+    required String hint,
+    TextInputType? keyboardType,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
       ),
-      onPressed: onPressed,
-      child: Text(
-        text,
-        style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      child: TextField(
+        controller: controller,
+        keyboardType: keyboardType,
+        style: const TextStyle(color: Colors.white, fontSize: 14),
+        cursorColor: Colors.white,
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: TextStyle(color: _Palette.muted, fontSize: 13),
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        ),
+      ),
+    );
+  }
+
+  // ── Glass pill button, matching HomeScreen's Send Message / Dispatch
+  // buttons.
+  Widget _glassPill({required String label, required bool filled, required VoidCallback onPressed}) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(30),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+        child: Container(
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: filled ? 0.12 : 0.05),
+            borderRadius: BorderRadius.circular(30),
+            border: Border.all(color: Colors.white.withValues(alpha: filled ? 0.15 : 0.08), width: 0.5),
+          ),
+          child: SizedBox(
+            height: 48,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.transparent,
+                shadowColor: Colors.transparent,
+                padding: EdgeInsets.zero,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+              ),
+              onPressed: onPressed,
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: filled ? Colors.white : _Palette.mutedLight,
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1183,107 +1188,155 @@ class _CreateEventScreenState extends State<CreateEventScreen> with SingleTicker
       child: GestureDetector(
         onTap: _closeMenu,
         child: Scaffold(
-          backgroundColor: zinc950,
+          backgroundColor: _Palette.bg,
           extendBody: true,
-          appBar: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            automaticallyImplyLeading: false,
-            title: Row(
+          body: SafeArea(
+            bottom: false,
+            child: Column(
               children: [
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.08),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.arrow_back_ios_new_rounded, color: Colors.white, size: 18),
-                  ),
-                ),
-                const SizedBox(width: 12),
+                _buildHeader(),
                 Expanded(
-                  child: Container(
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.06),
-                      borderRadius: BorderRadius.circular(22),
-                    ),
-                    child: TextField(
-                      controller: _searchController,
-                      style: const TextStyle(color: Colors.white, fontSize: 14),
-                      onChanged: _search,
-                      decoration: InputDecoration(
-                        hintText: 'Search contacts...',
-                        hintStyle: TextStyle(color: zinc500, fontSize: 13),
-                        prefixIcon: Icon(Icons.search_rounded, color: zinc400, size: 22),
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
-                      ),
-                    ),
-                  ),
+                  child: contacts.isEmpty ? _buildEmptyState() : _buildContactList(),
                 ),
-                const SizedBox(width: 8),
-                if (_syncEnabled && ApiClient.instance.linkedUser != null)
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(color: Colors.greenAccent, shape: BoxShape.circle),
-                  ),
-                const SizedBox(width: 8),
-                GestureDetector(
-                  key: _menuButtonKey,
-                  onTap: _toggleMenu,
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: _menuOpen ? Colors.white.withValues(alpha: 0.15) : Colors.transparent,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.more_vert_rounded, color: Colors.white, size: 26),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  child: Text(
+                    '${contacts.length} contact${contacts.length != 1 ? 's' : ''}',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: _Palette.muted, fontSize: 13),
                   ),
                 ),
               ],
-            ),
-          ),
-          body: contacts.isEmpty
-              ? Center(
-                  child: Text(
-                    'No contacts yet.\nTap ⋮ to add one.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: zinc500, fontSize: 16),
-                  ),
-                )
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  itemCount: contacts.length,
-                  itemBuilder: (context, i) {
-                    final c = contacts[i];
-                    return _ContactCard(
-                      contact: c,
-                      onTap: () => _showOptionsMenu(c),
-                      onPhoneTap: c.phones.length > 1 ? () => _showSecondNumber(c) : null,
-                      onDelete: () => _showDeleteConfirmation(c),
-                    );
-                  },
-                ),
-          bottomNavigationBar: Container(
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            child: Text(
-              '${contacts.length} contact${contacts.length != 1 ? 's' : ''}',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: zinc500, fontSize: 14),
             ),
           ),
         ),
       ),
     );
   }
+
+  // ── Header matching HomeScreen: glass back-button, glass search bar,
+  // sync indicator dot, glass menu chip — all reading as one continuous
+  // surface.
+  Widget _buildHeader() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 14),
+      child: Row(
+        children: [
+          GestureDetector(
+            onTap: () => Navigator.pop(context),
+            child: Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+              ),
+              child: const Icon(Icons.arrow_back_rounded, color: Colors.white, size: 19),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Container(
+              height: 42,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.06),
+                borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+              ),
+              child: TextField(
+                controller: _searchController,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+                onChanged: _search,
+                decoration: InputDecoration(
+                  hintText: 'Search contacts…',
+                  hintStyle: TextStyle(color: _Palette.muted, fontSize: 13),
+                  prefixIcon: Icon(Icons.search_rounded, color: _Palette.mutedLight, size: 20),
+                  border: InputBorder.none,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (_syncEnabled && ApiClient.instance.linkedUser != null)
+            Container(
+              width: 8,
+              height: 8,
+              margin: const EdgeInsets.only(right: 6),
+              decoration: const BoxDecoration(color: Colors.greenAccent, shape: BoxShape.circle),
+            ),
+          GestureDetector(
+            key: _menuButtonKey,
+            onTap: _toggleMenu,
+            child: Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: _menuOpen ? Colors.white.withValues(alpha: 0.14) : Colors.white.withValues(alpha: 0.06),
+                shape: BoxShape.circle,
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+              ),
+              child: const Icon(Icons.more_vert_rounded, color: Colors.white, size: 20),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.05),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(Icons.person_off_rounded, color: Colors.white.withValues(alpha: 0.3), size: 28),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'No contacts yet',
+              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Tap ⋮ above to add your first contact.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: _Palette.muted, fontSize: 13.5, height: 1.4),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContactList() {
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+      itemCount: contacts.length,
+      itemBuilder: (context, i) {
+        final c = contacts[i];
+        return _ContactCard(
+          contact: c,
+          onTap: () => _showOptionsMenu(c),
+          onPhoneTap: c.phones.length > 1 ? () => _showSecondNumber(c) : null,
+          onDelete: () => _showDeleteConfirmation(c),
+        );
+      },
+    );
+  }
 }
 
+/// ── Card restyled to match HomeScreen's glass surfaces: translucent
+/// fill, hairline border, circular avatar chip.
 class _ContactCard extends StatelessWidget {
   final Contact contact;
   final VoidCallback onTap;
@@ -1308,42 +1361,49 @@ class _ContactCard extends StatelessWidget {
       background: Container(
         margin: const EdgeInsets.only(bottom: 12),
         decoration: BoxDecoration(
-          color: Colors.redAccent.withValues(alpha: 0.12),
+          color: Colors.redAccent.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.redAccent.withValues(alpha: 0.2), width: 0.5),
+          border: Border.all(color: Colors.redAccent.withValues(alpha: 0.18), width: 0.5),
         ),
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.only(right: 20),
         child: const Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 24),
+            Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 22),
             SizedBox(height: 4),
             Text('Delete', style: TextStyle(color: Colors.redAccent, fontSize: 11)),
           ],
         ),
       ),
-      child: GestureDetector(
+      child: InkWell(
         onTap: onTap,
         onLongPress: onDelete,
+        borderRadius: BorderRadius.circular(16),
         child: Container(
           margin: const EdgeInsets.only(bottom: 12),
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.03),
+            color: Colors.white.withValues(alpha: 0.06),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.06), width: 0.5),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
           ),
           child: Row(
             children: [
               Stack(
                 children: [
-                  CircleAvatar(
-                    radius: 22,
-                    backgroundColor: Colors.white.withValues(alpha: 0.08),
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.06),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+                    ),
+                    alignment: Alignment.center,
                     child: Text(
                       contact.name.isNotEmpty ? contact.name[0].toUpperCase() : '?',
-                      style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                      style: const TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.w700),
                     ),
                   ),
                   if (contact.phones.length > 1)
@@ -1357,11 +1417,11 @@ class _ContactCard extends StatelessWidget {
                           decoration: BoxDecoration(
                             color: Colors.greenAccent,
                             shape: BoxShape.circle,
-                            border: Border.all(color: const Color(0xFF1C1C1E), width: 2),
+                            border: Border.all(color: _Palette.bg, width: 2),
                           ),
                           child: const Text(
                             '+1',
-                            style: TextStyle(color: Colors.black, fontSize: 10, fontWeight: FontWeight.bold),
+                            style: TextStyle(color: Colors.black, fontSize: 10, fontWeight: FontWeight.w700),
                           ),
                         ),
                       ),
@@ -1375,25 +1435,29 @@ class _ContactCard extends StatelessWidget {
                   children: [
                     Text(
                       contact.name,
-                      style: const TextStyle(color: Colors.white, fontSize: 16.5, fontWeight: FontWeight.w600),
+                      style: const TextStyle(color: Colors.white, fontSize: 15.5, fontWeight: FontWeight.w600),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 3),
                     if (contact.phones.isNotEmpty)
                       Text(
                         contact.phones[0],
-                        style: TextStyle(color: Colors.white.withValues(alpha: 0.6), fontSize: 14),
+                        style: TextStyle(color: Colors.white.withValues(alpha: 0.55), fontSize: 13),
                       ),
                   ],
                 ),
               ),
               Text(
                 DateFormat('MMM dd').format(contact.createdAt),
-                style: TextStyle(color: Colors.white.withValues(alpha: 0.25), fontSize: 12.5),
+                style: TextStyle(color: Colors.white.withValues(alpha: 0.25), fontSize: 12),
               ),
-              const SizedBox(width: 8),
-              IconButton(
-                icon: const Icon(Icons.more_vert_rounded, color: Colors.white70, size: 24),
-                onPressed: onTap,
+              const SizedBox(width: 4),
+              InkWell(
+                onTap: onTap,
+                borderRadius: BorderRadius.circular(18),
+                child: const Padding(
+                  padding: EdgeInsets.all(6),
+                  child: Icon(Icons.more_vert_rounded, color: Colors.white70, size: 20),
+                ),
               ),
             ],
           ),
@@ -1403,6 +1467,8 @@ class _ContactCard extends StatelessWidget {
   }
 }
 
+/// ── Full-screen picker restyled with HomeScreen's palette and glass
+/// pill buttons, keeping the same layout/behavior.
 class _ContactPickerSheet extends StatefulWidget {
   final List<fc.Contact> deviceContacts;
   final void Function(List<fc.Contact>) onSave;
@@ -1444,16 +1510,12 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
   @override
   Widget build(BuildContext context) {
     final count = _selected.length;
-    const Color zinc900 = Color(0xFF18181B);
-    const Color zinc700 = Color(0xFF3F3F46);
-    const Color zinc500 = Color(0xFF71717A);
-    const Color zinc400 = Color(0xFFA1A1AA);
 
     return Container(
       height: MediaQuery.of(context).size.height * 0.95,
-      decoration: BoxDecoration(
-        color: zinc900,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      decoration: const BoxDecoration(
+        color: _Palette.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(
         children: [
@@ -1461,7 +1523,7 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
           Container(
             width: 40,
             height: 4,
-            decoration: BoxDecoration(color: zinc700, borderRadius: BorderRadius.circular(2)),
+            decoration: BoxDecoration(color: _Palette.hairline, borderRadius: BorderRadius.circular(2)),
           ),
           const SizedBox(height: 20),
           Padding(
@@ -1471,20 +1533,20 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
                 const Expanded(
                   child: Text(
                     'Select Contacts',
-                    style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
+                    style: TextStyle(color: Colors.white, fontSize: 19, fontWeight: FontWeight.w700, letterSpacing: -0.3),
                   ),
                 ),
                 if (count > 0)
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: Colors.greenAccent.withValues(alpha: 0.15),
+                      color: Colors.greenAccent.withValues(alpha: 0.14),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.greenAccent.withValues(alpha: 0.4), width: 0.5),
+                      border: Border.all(color: Colors.greenAccent.withValues(alpha: 0.35), width: 0.5),
                     ),
                     child: Text(
                       '$count selected',
-                      style: const TextStyle(color: Colors.greenAccent, fontSize: 13, fontWeight: FontWeight.w600),
+                      style: const TextStyle(color: Colors.greenAccent, fontSize: 12.5, fontWeight: FontWeight.w600),
                     ),
                   ),
               ],
@@ -1498,15 +1560,16 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.06),
                 borderRadius: BorderRadius.circular(22),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
               ),
               child: TextField(
                 controller: _searchCtrl,
                 style: const TextStyle(color: Colors.white, fontSize: 14),
                 onChanged: _onSearch,
                 decoration: InputDecoration(
-                  hintText: 'Search...',
-                  hintStyle: TextStyle(color: zinc500, fontSize: 13),
-                  prefixIcon: Icon(Icons.search_rounded, color: zinc400, size: 20),
+                  hintText: 'Search…',
+                  hintStyle: TextStyle(color: _Palette.muted, fontSize: 13),
+                  prefixIcon: Icon(Icons.search_rounded, color: _Palette.mutedLight, size: 20),
                   border: InputBorder.none,
                   contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
                 ),
@@ -1519,33 +1582,39 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
                 ? Center(
                     child: Text(
                       'No contacts found',
-                      style: TextStyle(color: zinc500, fontSize: 15),
+                      style: TextStyle(color: _Palette.muted, fontSize: 15),
                     ),
                   )
                 : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
                     itemCount: _filtered.length,
                     itemBuilder: (_, i) {
                       final dc = _filtered[i];
                       final sel = _selected.contains(dc.id);
                       return InkWell(
                         onTap: () => _toggle(dc.id),
-                        borderRadius: BorderRadius.circular(12),
+                        borderRadius: BorderRadius.circular(14),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
                           child: Row(
                             children: [
-                              CircleAvatar(
-                                radius: 22,
-                                backgroundColor: sel
-                                    ? Colors.greenAccent.withValues(alpha: 0.2)
-                                    : Colors.white.withValues(alpha: 0.06),
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: sel
+                                      ? Colors.greenAccent.withValues(alpha: 0.18)
+                                      : Colors.white.withValues(alpha: 0.06),
+                                  shape: BoxShape.circle,
+                                  border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+                                ),
+                                alignment: Alignment.center,
                                 child: Text(
                                   dc.displayName.isNotEmpty ? dc.displayName[0].toUpperCase() : '?',
                                   style: TextStyle(
                                     color: sel ? Colors.greenAccent : Colors.white,
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
                                   ),
                                 ),
                               ),
@@ -1556,13 +1625,13 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
                                   children: [
                                     Text(
                                       dc.displayName,
-                                      style: const TextStyle(color: Colors.white, fontSize: 15.5, fontWeight: FontWeight.w600),
+                                      style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
                                     ),
                                     if (dc.phones.isNotEmpty) ...[
                                       const SizedBox(height: 3),
                                       Text(
                                         dc.phones[0].number,
-                                        style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13.5),
+                                        style: TextStyle(color: Colors.white.withValues(alpha: 0.5), fontSize: 13),
                                       ),
                                     ],
                                   ],
@@ -1570,17 +1639,17 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
                               ),
                               AnimatedContainer(
                                 duration: const Duration(milliseconds: 180),
-                                width: 24,
-                                height: 24,
+                                width: 22,
+                                height: 22,
                                 decoration: BoxDecoration(
                                   color: sel ? Colors.greenAccent : Colors.transparent,
                                   shape: BoxShape.circle,
                                   border: Border.all(
                                     color: sel ? Colors.greenAccent : Colors.white38,
-                                    width: 1.5,
+                                    width: 1.4,
                                   ),
                                 ),
-                                child: sel ? const Icon(Icons.check, color: Colors.black, size: 15) : null,
+                                child: sel ? const Icon(Icons.check, color: Colors.black, size: 14) : null,
                               ),
                             ],
                           ),
@@ -1590,36 +1659,71 @@ class _ContactPickerSheetState extends State<_ContactPickerSheet> {
                   ),
           ),
           SafeArea(
+            top: false,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
               child: Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.white,
-                        side: BorderSide(color: Colors.white.withValues(alpha: 0.2)),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(30),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(30),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+                          ),
+                          child: SizedBox(
+                            height: 52,
+                            child: TextButton(
+                              style: TextButton.styleFrom(
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                              ),
+                              onPressed: () => Navigator.pop(context),
+                              child: Text('Cancel', style: TextStyle(color: _Palette.mutedLight, fontSize: 15, fontWeight: FontWeight.w600)),
+                            ),
+                          ),
+                        ),
                       ),
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: count > 0 ? Colors.greenAccent : Colors.white.withValues(alpha: 0.15),
-                        foregroundColor: count > 0 ? Colors.black : Colors.white38,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-                        elevation: 0,
-                      ),
-                      onPressed: count > 0 ? _save : null,
-                      child: Text(
-                        count > 0 ? 'Add $count contact${count != 1 ? 's' : ''}' : 'Add',
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(30),
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(sigmaX: 15, sigmaY: 15),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: (count > 0 ? Colors.greenAccent : Colors.white).withValues(alpha: count > 0 ? 0.16 : 0.05),
+                            borderRadius: BorderRadius.circular(30),
+                            border: Border.all(
+                              color: (count > 0 ? Colors.greenAccent : Colors.white).withValues(alpha: count > 0 ? 0.3 : 0.08),
+                              width: 0.5,
+                            ),
+                          ),
+                          child: SizedBox(
+                            height: 52,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                shadowColor: Colors.transparent,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                              ),
+                              onPressed: count > 0 ? _save : null,
+                              child: Text(
+                                count > 0 ? 'Add $count contact${count != 1 ? 's' : ''}' : 'Add',
+                                style: TextStyle(
+                                  color: count > 0 ? Colors.greenAccent : Colors.white30,
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
                     ),
                   ),

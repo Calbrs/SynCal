@@ -8,6 +8,7 @@ enum Repetition {
   @HiveField(1) daily,
   @HiveField(2) weekly,
   @HiveField(3) monthly,
+  @HiveField(4) custom,
 }
 
 @HiveType(typeId: 106)
@@ -43,6 +44,8 @@ class ScheduledMessage extends HiveObject {
   ScheduleStatus status;           // pending, sent, failed
   @HiveField(11)
   DateTime? completedAt;           // when it was sent or failed
+  @HiveField(12)
+  final int? repeatIntervalMinutes;
 
   ScheduledMessage({
     required this.id,
@@ -57,6 +60,7 @@ class ScheduledMessage extends HiveObject {
     this.sentCount,
     this.status = ScheduleStatus.pending,
     this.completedAt,
+    this.repeatIntervalMinutes,
   });
 
   DateTime nextOccurrence(DateTime from) {
@@ -69,6 +73,11 @@ class ScheduledMessage extends HiveObject {
         return from.add(const Duration(days: 7));
       case Repetition.monthly:
         return DateTime(from.year, from.month + 1, from.day, from.hour, from.minute);
+      case Repetition.custom:
+        if (repeatIntervalMinutes != null && repeatIntervalMinutes! > 0) {
+          return from.add(Duration(minutes: repeatIntervalMinutes!));
+        }
+        return scheduledTime;
     }
   }
 
@@ -100,6 +109,7 @@ class ScheduledMessage extends HiveObject {
     int? sentCount,
     ScheduleStatus? status,
     DateTime? completedAt,
+    int? repeatIntervalMinutes,
   }) {
     return ScheduledMessage(
       id: id ?? this.id,
@@ -114,6 +124,7 @@ class ScheduledMessage extends HiveObject {
       sentCount: sentCount ?? this.sentCount,
       status: status ?? this.status,
       completedAt: completedAt ?? this.completedAt,
+      repeatIntervalMinutes: repeatIntervalMinutes ?? this.repeatIntervalMinutes,
     );
   }
 }

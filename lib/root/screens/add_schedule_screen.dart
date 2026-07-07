@@ -22,6 +22,9 @@ class _Palette {
   static const Color mutedLight = Color(0xFFA1A1AA);
 }
 
+/// Minimum allowed gap between repeated sends, in minutes.
+const int kMinRepeatIntervalMinutes = 5;
+
 class AddScheduleScreen extends StatefulWidget {
   final ScheduledMessage? existing;
   const AddScheduleScreen({super.key, this.existing});
@@ -41,6 +44,9 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
   List<SimCard> _simCards = [];
   bool _loadingSims = true;
 
+  // ── New: interval (in minutes) between repeated sends.
+  late int _repeatIntervalMinutes;
+
   @override
   void initState() {
     super.initState();
@@ -51,6 +57,9 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
     _simSlot = existing?.simSlot ?? -1;
     _simLabel = existing?.simLabel ?? 'Default SIM';
     _selectedContactKeys = existing?.recipientIds ?? [];
+    // NOTE: adjust `existing?.repeatIntervalMinutes` to match whatever field
+    // name you add on the ScheduledMessage model.
+    _repeatIntervalMinutes = existing?.repeatIntervalMinutes ?? kMinRepeatIntervalMinutes;
     _loadSimCards();
   }
 
@@ -74,10 +83,14 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
     super.dispose();
   }
 
+  bool get _isCustomRepetition => _repetition == Repetition.custom;
+
   bool get _isValid {
-    return _messageController.text.trim().isNotEmpty &&
+    final baseValid = _messageController.text.trim().isNotEmpty &&
         _selectedContactKeys.isNotEmpty &&
         _simSlot != -1;
+    if (!_isCustomRepetition) return baseValid;
+    return baseValid && _repeatIntervalMinutes >= kMinRepeatIntervalMinutes;
   }
 
   Future<void> _pickDateTime() async {
@@ -265,6 +278,11 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
                             subtitle: _repetitionLabel(_repetition),
                             onTap: _showRepetitionPicker,
                           ),
+                          // ── New: only shown once repetition is enabled.
+                          if (_isCustomRepetition) ...[
+                            const SizedBox(height: 10),
+                            _buildRepeatIntervalField(),
+                          ],
                           const SizedBox(height: 10),
                           _buildTile(
                             icon: Icons.sim_card_rounded,
@@ -427,6 +445,192 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
     );
   }
 
+  // ── New: tile + inline stepper for "how many minutes between repeats".
+  // Shown only when repetition != none. Tapping the tile opens a sheet
+  // with a numeric field; the tile itself also carries +/- steppers so
+  // most adjustments don't need to open anything.
+  Widget _buildRepeatIntervalField() {
+    final belowMin = _repeatIntervalMinutes < kMinRepeatIntervalMinutes;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: belowMin
+              ? Colors.redAccent.withValues(alpha: 0.4)
+              : Colors.white.withValues(alpha: 0.08),
+          width: 0.5,
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.timer_outlined, color: Colors.white70, size: 18),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _showRepeatIntervalEditor,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Repeat Every',
+                    style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    belowMin
+                        ? 'Minimum $kMinRepeatIntervalMinutes min'
+                        : '$_repeatIntervalMinutes min between sends',
+                    style: TextStyle(
+                      color: belowMin ? Colors.redAccent.withValues(alpha: 0.85) : _Palette.mutedLight,
+                      fontSize: 12.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          _StepperButton(
+            icon: Icons.remove_rounded,
+            onPressed: _repeatIntervalMinutes > kMinRepeatIntervalMinutes
+                ? () => setState(() => _repeatIntervalMinutes--)
+                : null,
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 28,
+            child: Text(
+              '$_repeatIntervalMinutes',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w700),
+            ),
+          ),
+          const SizedBox(width: 8),
+          _StepperButton(
+            icon: Icons.add_rounded,
+            onPressed: () => setState(() => _repeatIntervalMinutes++),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── New: sheet with a direct numeric entry for the interval, for when
+  // the user wants to type an exact number instead of tapping +/-.
+  void _showRepeatIntervalEditor() {
+    final controller = TextEditingController(text: _repeatIntervalMinutes.toString());
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom),
+          child: ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(20, 14, 20, 28),
+                decoration: BoxDecoration(
+                  color: _Palette.surface.withValues(alpha: 0.95),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                  border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5)),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 16),
+                        decoration: BoxDecoration(color: _Palette.hairline, borderRadius: BorderRadius.circular(2)),
+                      ),
+                    ),
+                    const Text(
+                      'Repeat Every (minutes)',
+                      style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w700),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      'Minimum $kMinRepeatIntervalMinutes minutes between sends',
+                      style: TextStyle(color: _Palette.muted, fontSize: 12.5),
+                    ),
+                    const SizedBox(height: 16),
+                    Container(
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.06),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+                      ),
+                      child: TextField(
+                        controller: controller,
+                        autofocus: true,
+                        keyboardType: TextInputType.number,
+                        inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                        cursorColor: Colors.white,
+                        textAlign: TextAlign.center,
+                        decoration: const InputDecoration(
+                          border: InputBorder.none,
+                          contentPadding: EdgeInsets.symmetric(vertical: 14),
+                          suffixText: 'min',
+                          suffixStyle: TextStyle(color: Colors.white38, fontSize: 13),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _GlassPillButton(
+                            label: 'Cancel',
+                            filled: false,
+                            onPressed: () => Navigator.pop(ctx),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: _GlassPillButton(
+                            label: 'Apply',
+                            filled: true,
+                            icon: Icons.check_rounded,
+                            onPressed: () {
+                              final parsed = int.tryParse(controller.text.trim());
+                              final safeValue = (parsed == null || parsed < kMinRepeatIntervalMinutes)
+                                  ? kMinRepeatIntervalMinutes
+                                  : parsed;
+                              Navigator.pop(ctx);
+                              if (mounted) {
+                                setState(() => _repeatIntervalMinutes = safeValue);
+                              }
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   // ── Bottom action, same glass pill treatment as HomeScreen's Send button.
   Widget _buildSaveButton() {
     return ClipRRect(
@@ -484,6 +688,8 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
     switch (rep) {
       case Repetition.none:
         return 'One-time';
+      case Repetition.custom:
+        return 'Custom Interval';
       default:
         return rep.name[0].toUpperCase() + rep.name.substring(1);
     }
@@ -503,7 +709,15 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
               selected: selected,
               onTap: () {
                 Navigator.pop(ctx);
-                setState(() => _repetition = rep);
+                setState(() {
+                  _repetition = rep;
+                  // Reset to the minimum whenever repetition is freshly
+                  // turned on, so we never save a stale/invalid interval.
+                  if (_repetition != Repetition.none &&
+                      _repeatIntervalMinutes < kMinRepeatIntervalMinutes) {
+                    _repeatIntervalMinutes = kMinRepeatIntervalMinutes;
+                  }
+                });
               },
             );
           }).toList(),
@@ -557,6 +771,10 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
       isActive: true,
       createdAt: widget.existing?.createdAt ?? DateTime.now(),
       sentCount: widget.existing?.sentCount,
+      // NOTE: add `repeatIntervalMinutes` (int) to the ScheduledMessage
+      // model/constructor for this to compile. Only meaningful when
+      // repetition != Repetition.none.
+      repeatIntervalMinutes: _isCustomRepetition ? _repeatIntervalMinutes : null,
     );
 
     if (widget.existing == null) {
@@ -568,6 +786,31 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
     if (mounted) {
       Navigator.pop(context);
     }
+  }
+}
+
+/// ── Small circular +/- button used by the repeat-interval stepper.
+class _StepperButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onPressed;
+  const _StepperButton({required this.icon, required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null;
+    return GestureDetector(
+      onTap: onPressed,
+      child: Container(
+        width: 26,
+        height: 26,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: enabled ? 0.08 : 0.04),
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white.withValues(alpha: enabled ? 0.12 : 0.06), width: 0.5),
+        ),
+        child: Icon(icon, size: 14, color: enabled ? Colors.white : Colors.white24),
+      ),
+    );
   }
 }
 

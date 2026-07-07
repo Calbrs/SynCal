@@ -65,6 +65,26 @@ class MainActivity : FlutterActivity() {
                     prefs.edit().putLong("callback_handle", handle).apply()
                     result.success(null)
                 }
+                "isIgnoringBatteryOptimizations" -> {
+                    val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        result.success(pm.isIgnoringBatteryOptimizations(packageName))
+                    } else {
+                        result.success(true) // Not applicable on older versions
+                    }
+                }
+                "requestIgnoreBatteryOptimizations" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                        if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = Uri.parse("package:$packageName")
+                            }
+                            startActivity(intent)
+                        }
+                    }
+                    result.success(null)
+                }
                 "toggleUnkillableMode" -> {
                     val enabled = call.argument<Boolean>("enabled") ?: false
                     val serviceIntent = Intent(applicationContext, SmsForegroundService::class.java)

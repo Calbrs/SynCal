@@ -21,6 +21,8 @@ import io.flutter.embedding.engine.dart.DartExecutor
 import io.flutter.embedding.engine.loader.FlutterLoader
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.view.FlutterCallbackInformation
+import java.util.Timer
+import java.util.TimerTask
 import kotlin.concurrent.thread
 
 class SmsForegroundService : Service() {
@@ -34,19 +36,43 @@ class SmsForegroundService : Service() {
         private const val WATCHDOG_TIMEOUT_MS = 45_000L
     }
 
+    private var continuousWakeLock: PowerManager.WakeLock? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var isProcessing = false
+    private var periodicTimer: Timer? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification(isUnkillableModeEnabled(this)))
+        startForeground(NOTIFICATION_ID, buildNotification())
+        
+        // Acquire a continuous Partial WakeLock to keep the CPU awake
+        // This prevents Deep Sleep and guarantees the 30-second watchdog
+        // runs exactly on time, bypassing OEM AlarmManager throttling.
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        continuousWakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SynCal:ContinuousWakeLock").apply {
+            acquire() // Held indefinitely while service is alive
+        }
+        Log.d(TAG, "Continuous WakeLock acquired")
+        
+        // Start the periodic watchdog timer on a dedicated background thread.
+        // We use java.util.Timer instead of a MainLooper Handler because
+        // many OEMs freeze the UI Main Thread when the app is backgrounded.
+        periodicTimer = Timer("SmsWatchdogTimer")
+        periodicTimer?.scheduleAtFixedRate(object : TimerTask() {
+            override fun run() {
+                Log.d(TAG, "Periodic watchdog: checking for due schedules (Background Thread)")
+                if (!isProcessing) {
+                    isProcessing = true
+                    acquireWakeLock()
+                    // Already on a background thread, so no need to spawn a new one
+                    processSmsQueue(isPeriodicCheck = true)
+                }
+            }
+        }, 30_000L, 30_000L)
     }
 
-    private fun isUnkillableModeEnabled(context: Context): Boolean {
-        val prefs = context.getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-        return prefs.getBoolean("flutter.unkillable_mode_enabled", false)
-    }
+    // Unkillable mode setting check removed: service is now unconditionally persistent.
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "onStartCommand: Received intent to process queue")
@@ -57,29 +83,30 @@ class SmsForegroundService : Service() {
             
             // Process queue on a background thread (Pipeline execution)
             thread {
-                processSmsQueue()
+                processSmsQueue(isPeriodicCheck = false)
             }
         }
         
-        val unkillable = isUnkillableModeEnabled(this)
-        
-        // Update notification based on mode
+        // Update notification
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(NOTIFICATION_ID, buildNotification(unkillable))
+        notificationManager.notify(NOTIFICATION_ID, buildNotification())
 
-        if (unkillable) {
-            Log.d(TAG, "Unkillable mode is ON. Returning START_STICKY.")
-            return START_STICKY
-        }
-        
-        // Return START_NOT_STICKY because this is a job processor.
-        Log.d(TAG, "Unkillable mode is OFF. Returning START_NOT_STICKY.")
-        return START_NOT_STICKY
+        // Return START_STICKY to ensure the OS restarts the service if it's killed.
+        Log.d(TAG, "Returning START_STICKY to keep service alive.")
+        return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        periodicTimer?.cancel()
+        periodicTimer = null
+        continuousWakeLock?.let {
+            if (it.isHeld) {
+                it.release()
+                Log.d(TAG, "Continuous WakeLock released")
+            }
+        }
         releaseWakeLock()
         stopForeground(true)
         super.onDestroy()
@@ -108,7 +135,7 @@ class SmsForegroundService : Service() {
 
     // ── Pipeline Execution ──────────────────────────────────────────────────
 
-    private fun processSmsQueue() {
+    private fun processSmsQueue(isPeriodicCheck: Boolean = false) {
         val appContext = applicationContext
         
         // Step 1: Find ALL due schedules from SQLite
@@ -149,9 +176,16 @@ class SmsForegroundService : Service() {
             finishProcessing()
         } else {
             // FALLBACK PATH: If SQLite is empty, run headless Flutter to check if Dart has anything
-            Log.d(TAG, "FALLBACK path: no native schedule found — starting headless Flutter engine")
-            Handler(Looper.getMainLooper()).post {
-                runHeadlessTask(appContext)
+            // To save battery, we ONLY spin up Headless Flutter if triggered by an intent (AlarmManager),
+            // NOT during the 30-second periodic checks.
+            if (!isPeriodicCheck) {
+                Log.d(TAG, "FALLBACK path: no native schedule found — starting headless Flutter engine")
+                Handler(Looper.getMainLooper()).post {
+                    runHeadlessTask(appContext)
+                }
+            } else {
+                Log.d(TAG, "Periodic check: no native schedules due. Skipping headless fallback to save battery.")
+                finishProcessing()
             }
         }
     }
@@ -160,12 +194,9 @@ class SmsForegroundService : Service() {
         isProcessing = false
         releaseWakeLock()
         
-        if (isUnkillableModeEnabled(this)) {
-            Log.d(TAG, "finishProcessing: Unkillable mode ON — keeping service alive.")
-        } else {
-            Log.d(TAG, "finishProcessing: Unkillable mode OFF — stopping service.")
-            stopSelf()
-        }
+        // We no longer stop the service here. We want it to remain persistent
+        // in the foreground so the OS does not kill the app, similar to SMSGate.
+        Log.d(TAG, "finishProcessing: Queue empty. Service remains alive in foreground.")
     }
 
     // ── Native SMS sending ──────────────────────────────────────────────────
@@ -317,26 +348,20 @@ class SmsForegroundService : Service() {
         }
     }
 
-    private fun buildNotification(isUnkillable: Boolean): Notification {
+    private fun buildNotification(): Notification {
         val intent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val contentText = if (isUnkillable) {
-            "SynCal Background Service Active"
-        } else {
-            "Processing scheduled messages..."
-        }
-
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("SynCal")
-            .setContentText(contentText)
+            .setContentTitle("SynCal Background Service")
+            .setContentText("Listening for schedules... (Persistent)")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setOngoing(isUnkillable)
+            .setOngoing(true) // Crucial: prevents the user from swiping away the notification, making it unkillable
             .build()
     }
 }

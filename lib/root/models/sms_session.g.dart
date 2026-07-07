@@ -78,13 +78,14 @@ class SmsSessionAdapter extends TypeAdapter<SmsSession> {
       state: fields[6] as SmsSessionState,
       retryPass: fields[7] as int,
       finishedAt: fields[8] as DateTime?,
+      scheduleId: fields[9] as String?,
     );
   }
 
   @override
   void write(BinaryWriter writer, SmsSession obj) {
     writer
-      ..writeByte(9)
+      ..writeByte(10)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -102,7 +103,9 @@ class SmsSessionAdapter extends TypeAdapter<SmsSession> {
       ..writeByte(7)
       ..write(obj.retryPass)
       ..writeByte(8)
-      ..write(obj.finishedAt);
+      ..write(obj.finishedAt)
+      ..writeByte(9)
+      ..write(obj.scheduleId);
   }
 
   @override
