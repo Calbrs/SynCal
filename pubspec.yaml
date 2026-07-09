@@ -2,7 +2,7 @@ name: syn_cal
 description: "A new Flutter project."
 publish_to: 'none'
 
-version: 0.0.04
+version: 0.0.06
 
 
 environment:
