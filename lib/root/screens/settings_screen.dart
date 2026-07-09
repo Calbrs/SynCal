@@ -109,24 +109,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _checkForUpdates() async {
     setState(() => _checkingUpdate = true);
     try {
-      final result = await VersionCheckService.checkForUpdate();
-      if (!mounted) return;
-
-      if (result != null && result.hasUpdate) {
-        setState(() => _latestVersion = result.latestVersion);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('New version v${result.latestVersion} available on Home Screen'),
-              backgroundColor: Colors.blueAccent,
-            ),
-          );
-        }
-      } else if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('You are up to date ✓'), backgroundColor: Colors.green),
-        );
-      }
+      await VersionCheckService.checkAndPromptUpdate(context, silent: false);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

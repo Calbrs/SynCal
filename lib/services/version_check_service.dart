@@ -6,6 +6,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pub_semver/pub_semver.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'sms_gateway_service.dart';
 
 class UpdateCheckResult {
   final bool hasUpdate;
@@ -217,54 +218,112 @@ class VersionCheckService {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => AlertDialog(
-        title: Row(
-          children: [
-            const Icon(Icons.system_update, color: Colors.blue),
-            const SizedBox(width: 12),
-            Text('Update $version'),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('A new version is available!', style: TextStyle(fontSize: 16)),
-              if (changelog.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(10)),
-                  child: Text(
-                    changelog.length > 350 ? '${changelog.substring(0, 350)}...' : changelog,
-                    style: const TextStyle(fontSize: 13, height: 1.4),
-                  ),
+      builder: (_) {
+        bool isDownloading = false;
+        double downloadProgress = 0.0;
+        
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              title: Row(
+                children: [
+                  const Icon(Icons.system_update, color: Colors.blue),
+                  const SizedBox(width: 12),
+                  Text('Update $version'),
+                ],
+              ),
+              content: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('A new version is available!', style: TextStyle(fontSize: 16)),
+                    if (changelog.isNotEmpty && !isDownloading) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(10)),
+                        child: Text(
+                          changelog.length > 350 ? '${changelog.substring(0, 350)}...' : changelog,
+                          style: const TextStyle(fontSize: 13, height: 1.4),
+                        ),
+                      ),
+                    ],
+                    if (isDownloading) ...[
+                      const SizedBox(height: 24),
+                      Text('Downloading... ${(downloadProgress * 100).toStringAsFixed(1)}%'),
+                      const SizedBox(height: 12),
+                      LinearProgressIndicator(value: downloadProgress),
+                    ],
+                    if (!isDownloading) ...[
+                      const SizedBox(height: 16),
+                      const Text('Would you like to update now?', style: TextStyle(fontWeight: FontWeight.bold)),
+                    ]
+                  ],
                 ),
+              ),
+              actions: [
+                if (!isDownloading)
+                  TextButton(onPressed: () => Navigator.pop(context), child: const Text('Later')),
+                if (!isDownloading)
+                  FilledButton(
+                    onPressed: () async {
+                      setState(() {
+                        isDownloading = true;
+                        downloadProgress = 0.0;
+                      });
+
+                      try {
+                        final apkPath = await downloadApk(
+                          version: version,
+                          onProgress: (progress) {
+                            if (context.mounted) {
+                              setState(() => downloadProgress = progress);
+                            }
+                          },
+                        );
+
+                        if (context.mounted && apkPath != null) {
+                          Navigator.pop(context);
+                          
+                          // Handle install permissions and installation
+                          final canInstall = await SmsGatewayService.canInstallPackages();
+                          if (!canInstall) {
+                            final granted = await SmsGatewayService.requestInstallPermission();
+                            if (!granted && context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Please enable "Install unknown apps" to update.'),
+                                  duration: Duration(seconds: 4),
+                                ),
+                              );
+                              return;
+                            }
+                          }
+                          
+                          await SmsGatewayService.installApk(apkPath);
+                        } else if (context.mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('Failed to download APK.')),
+                          );
+                        }
+                      } catch (e) {
+                        if (context.mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Update failed: $e')),
+                          );
+                        }
+                      }
+                    },
+                    child: const Text('Install Now'),
+                  ),
               ],
-              const SizedBox(height: 16),
-              const Text('Would you like to update now?', style: TextStyle(fontWeight: FontWeight.bold)),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Later')),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await openUpdateUrl(url);
-            },
-            child: const Text('View Release'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await openUpdateUrl(url);
-            },
-            child: const Text('Install Now'),
-          ),
-        ],
-      ),
+            );
+          }
+        );
+      },
     );
   }
 }

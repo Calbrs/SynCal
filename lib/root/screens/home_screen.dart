@@ -11,8 +11,8 @@ import '../models/sms_session.dart';
 import '../../services/sms_gateway_service.dart';
 import '../../services/sms_session_store.dart';
 import '../../services/version_check_service.dart';
+import '../../services/background_permission_prompt.dart';
 import '../app_routes.dart';
-import 'package:auto_start_flutter/auto_start_flutter.dart';
 
 class ShimmerLoading extends StatefulWidget {
   final Widget child;
@@ -79,8 +79,6 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _isDownloading = false;
   double _downloadProgress = 0.0;
   bool _requestingPermissions = false;
-  bool _batteryOptIgnored = false;
-  bool _batteryOptChecked = false;
 
   @override
   void initState() {
@@ -100,33 +98,9 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
     
-    // Also request AutoStart and Battery Optimization
-    try {
-      final available = await isAutoStartAvailable;
-      if (available == true) {
-        await getAutoStartPermission();
-      }
-    } catch (e) {
-      debugPrint('AutoStart error: $e');
-    }
-
-    try {
-      final isBatteryIgnored = await SmsGatewayService.isIgnoringBatteryOptimizations();
-      if (mounted) {
-        setState(() {
-          _batteryOptIgnored = isBatteryIgnored;
-          _batteryOptChecked = true;
-        });
-      }
-      if (!isBatteryIgnored) {
-        await SmsGatewayService.requestIgnoreBatteryOptimizations();
-        // Re-check after user returns from settings
-        await Future.delayed(const Duration(milliseconds: 500));
-        final newStatus = await SmsGatewayService.isIgnoringBatteryOptimizations();
-        if (mounted) setState(() => _batteryOptIgnored = newStatus);
-      }
-    } catch (e) {
-      debugPrint('Battery optimization error: $e');
+    // Also request background permissions using the unified prompt
+    if (mounted) {
+      await BackgroundPermissionPrompt.ensureGranted(context);
     }
 
     final sims = await SmsGatewayService.getSimCards();
@@ -150,29 +124,10 @@ class _HomeScreenState extends State<HomeScreen> {
       final granted = await SmsGatewayService.requestPermissions();
       if (!mounted) return;
       
-      // Also request AutoStart and Battery Optimization
-      try {
-        final available = await isAutoStartAvailable;
-        if (available == true) {
-          await getAutoStartPermission();
-        }
-      } catch (e) {
-        debugPrint('AutoStart error: $e');
+      if (granted && mounted) {
+        await BackgroundPermissionPrompt.ensureGranted(context);
       }
-
-      try {
-        final isBatteryIgnored = await SmsGatewayService.isIgnoringBatteryOptimizations();
-        if (mounted) setState(() { _batteryOptIgnored = isBatteryIgnored; _batteryOptChecked = true; });
-        if (!isBatteryIgnored) {
-          await SmsGatewayService.requestIgnoreBatteryOptimizations();
-          await Future.delayed(const Duration(milliseconds: 500));
-          final newStatus = await SmsGatewayService.isIgnoringBatteryOptimizations();
-          if (mounted) setState(() => _batteryOptIgnored = newStatus);
-        }
-      } catch (e) {
-        debugPrint('Battery optimization error: $e');
-      }
-
+      
       if (granted) {
         final sims = await SmsGatewayService.getSimCards();
         if (mounted) {
@@ -199,10 +154,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  bool _hasContactsWithNumbers() {
-    final box = Hive.box<Contact>('contacts');
-    return box.values.any((c) => c.phones.isNotEmpty);
-  }
 
   Future<void> _checkForUpdate() async {
     try {
@@ -329,49 +280,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildBatteryWarningBanner() {
-    return GestureDetector(
-      onTap: () async {
-        await SmsGatewayService.requestIgnoreBatteryOptimizations();
-        // Re-check after returning from settings
-        await Future.delayed(const Duration(milliseconds: 800));
-        final ignored = await SmsGatewayService.isIgnoringBatteryOptimizations();
-        if (mounted) setState(() => _batteryOptIgnored = ignored);
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: Colors.orange.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: Colors.orange.withValues(alpha: 0.35), width: 0.8),
-        ),
-        child: Row(
-          children: [
-            const Icon(Icons.battery_alert_rounded, color: Colors.orange, size: 18),
-            const SizedBox(width: 10),
-            const Expanded(
-              child: Text(
-                'Battery optimization is ON — scheduled SMS may not send on time.',
-                style: TextStyle(color: Colors.orange, fontSize: 12.5, fontWeight: FontWeight.w500),
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: Colors.orange.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Text(
-                'Fix Now',
-                style: TextStyle(color: Colors.orange, fontSize: 12, fontWeight: FontWeight.w700),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final indicatorColor = _permissionsGranted ? Colors.green : Colors.orangeAccent;
@@ -403,14 +311,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Padding(
                             padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
                             child: _buildUpdateBanner(),
-                          ),
-                        ),
-                      // Battery optimization warning banner
-                      if (_batteryOptChecked && !_batteryOptIgnored)
-                        SliverToBoxAdapter(
-                          child: Padding(
-                            padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-                            child: _buildBatteryWarningBanner(),
                           ),
                         ),
                       if (!store.isLoaded)

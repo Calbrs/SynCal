@@ -410,6 +410,8 @@ class _LinkManagementScreenState extends State<LinkManagementScreen> {
                                           await ApiClient.instance.generateLink(linkType);
                                           if (mounted) {
                                             setModalState(() => generating = false);
+                                          }
+                                          if (context.mounted) {
                                             Navigator.pop(ctx);
                                             _loadLinks();
                                             ScaffoldMessenger.of(context).showSnackBar(
