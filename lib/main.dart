@@ -4,6 +4,7 @@ import 'package:hive_flutter/hive_flutter.dart';
 import 'package:provider/provider.dart';
 
 import 'root/models/contact.dart';
+import 'root/models/contact_group.dart';
 import 'root/models/sms_session.dart';
 import 'root/models/scheduled_message.dart';
 import 'root/app_routes.dart';
@@ -48,10 +49,12 @@ void main() async {
   Hive.registerAdapter(RepetitionAdapter());         // typeId: 105
   Hive.registerAdapter(ScheduleStatusAdapter());     // typeId: 106
   Hive.registerAdapter(ScheduledMessageAdapter());   // typeId: 107
+  Hive.registerAdapter(ContactGroupAdapter());       // typeId: 108
 
   // Open all required Hive boxes
   await Hive.openBox<dynamic>(ApiConfig.syncalBoxKey);
   await Hive.openBox<Contact>('contacts');
+  await Hive.openBox<ContactGroup>('contact_groups');
   await Hive.openBox<SmsSession>('sms_sessions');
   await Hive.openBox<ScheduledMessage>('scheduled_messages');
   await Hive.openBox('settings');

@@ -5,6 +5,7 @@ import 'package:hive/hive.dart';
 import 'package:collection/collection.dart';
 
 import '../root/models/contact.dart';
+import '../root/models/contact_group.dart';
 import '../root/models/sms_session.dart';
 import 'sms_gateway_service.dart';
 import 'app_logger.dart';
@@ -199,6 +200,8 @@ class SmsSessionStore extends ChangeNotifier {
     required String message,
     required int simSlot,
     required String simLabel,
+    List<String>? contactKeys,
+    String? groupId,
   }) async {
     // This is only called from the UI — should never be headless.
     final box = Hive.box<Contact>('contacts');
@@ -209,7 +212,33 @@ class SmsSessionStore extends ChangeNotifier {
     // with two stored numbers from receiving the same SMS twice.
     final seenNames = <String>{};
 
-    for (final contact in box.values) {
+    // Determine which contacts to iterate over based on audience scope
+    Iterable<Contact> targetContacts;
+    if (contactKeys != null && contactKeys.isNotEmpty) {
+      // Specific individuals selected
+      targetContacts = contactKeys.map((k) {
+        final idx = box.keys.toList().indexWhere((key) => key.toString() == k);
+        return idx != -1 ? box.getAt(idx) : null;
+      }).whereType<Contact>();
+    } else if (groupId != null) {
+      // A group selected — resolve its member keys
+      final groupBox = Hive.box<ContactGroup>('contact_groups');
+      final group = groupBox.values.cast<ContactGroup?>().firstWhere(
+        (g) => g?.id == groupId, orElse: () => null);
+      if (group == null) {
+        AppLogger.warn(_tag, 'Group $groupId not found — session aborted.');
+        return;
+      }
+      targetContacts = group.contactKeys.map((k) {
+        final idx = box.keys.toList().indexWhere((key) => key.toString() == k);
+        return idx != -1 ? box.getAt(idx) : null;
+      }).whereType<Contact>();
+    } else {
+      // Default: all contacts
+      targetContacts = box.values;
+    }
+
+    for (final contact in targetContacts) {
       if (contact.phones.isEmpty) continue;
       final normalizedName = contact.name.trim().toLowerCase();
       if (seenNames.contains(normalizedName)) {

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
-import 'screens/create_event_screen.dart';
+import 'screens/contacts_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/settings_screen.dart';
 import 'screens/splash_screen.dart';
@@ -139,11 +139,11 @@ class AppRoutes {
         ),
       ),
       GoRoute(
-        path: createEvent,
-        name: 'createEvent',
+        path: createEvent, // Keeping path same to avoid deep link issues if any
+        name: 'contacts',
         pageBuilder: (context, state) => _buildSmoothTransitionPage(
           key: state.pageKey,
-          child: const CreateEventScreen(),
+          child: const ContactsScreen(),
         ),
       ),
       GoRoute(

@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/contact.dart';
+import '../models/contact_group.dart';
 import '../models/scheduled_message.dart';
 import '../../services/scheduled_message_store.dart';
 import '../../services/sms_gateway_service.dart';
@@ -40,9 +41,13 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
   late Repetition _repetition;
   late int _simSlot;
   late String _simLabel;
-  late List<String> _selectedContactKeys;
   List<SimCard> _simCards = [];
   bool _loadingSims = true;
+
+  // Audience state: 'all', 'group', or 'individuals'
+  String _audienceMode = 'all';
+  ContactGroup? _selectedGroup;
+  List<String> _selectedContactKeys = [];
 
   // ── New: interval (in minutes) between repeated sends.
   late int _repeatIntervalMinutes;
@@ -56,10 +61,25 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
     _repetition = existing?.repetition ?? Repetition.none;
     _simSlot = existing?.simSlot ?? -1;
     _simLabel = existing?.simLabel ?? 'Default SIM';
-    _selectedContactKeys = existing?.recipientIds ?? [];
-    // NOTE: adjust `existing?.repeatIntervalMinutes` to match whatever field
-    // name you add on the ScheduledMessage model.
     _repeatIntervalMinutes = existing?.repeatIntervalMinutes ?? kMinRepeatIntervalMinutes;
+    
+    // Parse existing recipientIds into audience state
+    if (existing != null && existing.recipientIds.isNotEmpty) {
+      final firstId = existing.recipientIds.first;
+      if (firstId == 'all_contacts') {
+        _audienceMode = 'all';
+      } else if (firstId.startsWith('group:')) {
+        _audienceMode = 'group';
+        final groupId = firstId.substring(6);
+        if (Hive.isBoxOpen('contact_groups')) {
+          _selectedGroup = Hive.box<ContactGroup>('contact_groups').values.cast<ContactGroup?>().firstWhere((g) => g?.id == groupId, orElse: () => null);
+        }
+      } else {
+        _audienceMode = 'individuals';
+        _selectedContactKeys = existing.recipientIds.map((id) => id.startsWith('contact:') ? id.substring(8) : id).toList();
+      }
+    }
+
     _loadSimCards();
   }
 
@@ -86,8 +106,12 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
   bool get _isCustomRepetition => _repetition == Repetition.custom;
 
   bool get _isValid {
+    final hasRecipients = _audienceMode == 'all' || 
+        (_audienceMode == 'group' && _selectedGroup != null) ||
+        (_audienceMode == 'individuals' && _selectedContactKeys.isNotEmpty);
+        
     final baseValid = _messageController.text.trim().isNotEmpty &&
-        _selectedContactKeys.isNotEmpty &&
+        hasRecipients &&
         _simSlot != -1;
     if (!_isCustomRepetition) return baseValid;
     return baseValid && _repeatIntervalMinutes >= kMinRepeatIntervalMinutes;
@@ -106,10 +130,201 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
     setState(() => _scheduledTime = result);
   }
 
-  void _selectContacts() {
+  void _showAudiencePicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(22, 14, 22, 28),
+              decoration: BoxDecoration(
+                color: _Palette.surface.withValues(alpha: 0.95),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 18),
+                      decoration: BoxDecoration(color: _Palette.hairline, borderRadius: BorderRadius.circular(2)),
+                    ),
+                  ),
+                  const Text(
+                    'SEND_TO',
+                    style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700, fontFamily: 'monospace', letterSpacing: 0.8),
+                  ),
+                  const SizedBox(height: 16),
+                  // Option 1: All Contacts
+                  _AudienceOption(
+                    icon: Icons.people_rounded,
+                    label: 'All Contacts',
+                    subtitle: 'Send to everyone in your list',
+                    selected: _audienceMode == 'all',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      setState(() {
+                        _audienceMode = 'all';
+                        _selectedGroup = null;
+                        _selectedContactKeys = [];
+                      });
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  // Option 2: Group
+                  _AudienceOption(
+                    icon: Icons.groups_rounded,
+                    label: 'Group',
+                    subtitle: _selectedGroup?.name ?? 'Choose a group',
+                    selected: _audienceMode == 'group',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showGroupPicker();
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  // Option 3: Individuals
+                  _AudienceOption(
+                    icon: Icons.person_rounded,
+                    label: 'Individuals',
+                    subtitle: _selectedContactKeys.isEmpty ? 'Pick specific people' : '${_selectedContactKeys.length} selected',
+                    selected: _audienceMode == 'individuals',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showIndividualPicker();
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showGroupPicker() {
+    final groupBox = Hive.box<ContactGroup>('contact_groups');
+    final groups = groupBox.values.toList();
+    if (groups.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('No groups yet. Create one in Contacts.'),
+          backgroundColor: _Palette.surface,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+            child: Container(
+              constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.5),
+              padding: const EdgeInsets.fromLTRB(22, 14, 22, 28),
+              decoration: BoxDecoration(
+                color: _Palette.surface.withValues(alpha: 0.95),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36, height: 4,
+                      margin: const EdgeInsets.only(bottom: 18),
+                      decoration: BoxDecoration(color: _Palette.hairline, borderRadius: BorderRadius.circular(2)),
+                    ),
+                  ),
+                  const Text('SELECT_GROUP', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700, fontFamily: 'monospace', letterSpacing: 0.8)),
+                  const SizedBox(height: 16),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: groups.length,
+                      itemBuilder: (_, i) {
+                        final g = groups[i];
+                        final isSel = _selectedGroup?.id == g.id;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: GestureDetector(
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              setState(() {
+                                _audienceMode = 'group';
+                                _selectedGroup = g;
+                                _selectedContactKeys = [];
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                              decoration: BoxDecoration(
+                                color: isSel ? Colors.white.withValues(alpha: 0.1) : Colors.white.withValues(alpha: 0.04),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: isSel ? Colors.white.withValues(alpha: 0.25) : Colors.white.withValues(alpha: 0.08), width: 0.5),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.groups_rounded, color: Colors.white70, size: 20),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(g.name, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                                        Text('${g.contactKeys.length} members', style: TextStyle(color: _Palette.muted, fontSize: 12)),
+                                      ],
+                                    ),
+                                  ),
+                                  if (isSel) const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 20),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showIndividualPicker() {
     final box = Hive.box<Contact>('contacts');
-    final allContacts = box.values.toList();
-    final selected = List<String>.from(_selectedContactKeys);
+    final boxKeys = box.keys.toList();
+    final boxValues = box.values.toList();
+    final allContacts = List.generate(boxKeys.length, (i) => MapEntry(boxKeys[i], boxValues[i]))
+        .where((e) => !e.value.isDeleted)
+        .toList();
+    if (allContacts.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('No contacts yet. Add contacts first.'),
+          backgroundColor: _Palette.surface,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    final selected = Set<String>.from(_selectedContactKeys);
 
     showModalBottomSheet(
       context: context,
@@ -165,9 +380,10 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
                         child: ListView.builder(
                           itemCount: allContacts.length,
                           itemBuilder: (_, idx) {
-                            final contact = allContacts[idx];
-                            final key = box.keyAt(idx);
-                            final isChecked = selected.contains(key.toString());
+                            final entry = allContacts[idx];
+                            final contact = entry.value;
+                            final key = entry.key.toString();
+                            final isChecked = selected.contains(key);
                             return Material(
                               color: Colors.transparent,
                               child: CheckboxListTile(
@@ -182,11 +398,10 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
                                 value: isChecked,
                                 onChanged: (checked) {
                                   setModalState(() {
-                                    final keyStr = key.toString();
                                     if (checked == true) {
-                                      if (!selected.contains(keyStr)) selected.add(keyStr);
+                                      selected.add(key);
                                     } else {
-                                      selected.remove(keyStr);
+                                      selected.remove(key);
                                     }
                                   });
                                 },
@@ -221,7 +436,9 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
                                 Navigator.pop(ctx);
                                 if (mounted) {
                                   setState(() {
-                                    _selectedContactKeys = List.from(selected);
+                                    _audienceMode = 'individuals';
+                                    _selectedGroup = null;
+                                    _selectedContactKeys = selected.toList();
                                   });
                                 }
                               },
@@ -295,10 +512,12 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
                           _buildTile(
                             icon: Icons.person_rounded,
                             title: 'Recipients',
-                            subtitle: _selectedContactKeys.isEmpty
-                                ? 'None selected'
-                                : '${_selectedContactKeys.length} selected',
-                            onTap: _selectContacts,
+                            subtitle: _audienceMode == 'all'
+                                ? 'All Contacts'
+                                : _audienceMode == 'group'
+                                    ? (_selectedGroup?.name ?? 'Select Group')
+                                    : '${_selectedContactKeys.length} selected',
+                            onTap: _showAudiencePicker,
                           ),
                         ],
                       ),
@@ -760,20 +979,27 @@ class _AddScheduleScreenState extends State<AddScheduleScreen> {
     final store = context.read<ScheduledMessageStore>();
     final id = widget.existing?.id ?? const Uuid().v4();
 
+    // Encode audience as recipientIds
+    late List<String> recipientIds;
+    if (_audienceMode == 'all') {
+      recipientIds = ['all_contacts'];
+    } else if (_audienceMode == 'group' && _selectedGroup != null) {
+      recipientIds = ['group:${_selectedGroup!.id}'];
+    } else {
+      recipientIds = _selectedContactKeys.map((k) => 'contact:$k').toList();
+    }
+
     final schedule = ScheduledMessage(
       id: id,
       message: _messageController.text.trim(),
       scheduledTime: _scheduledTime,
       repetition: _repetition,
-      recipientIds: _selectedContactKeys,
+      recipientIds: recipientIds,
       simSlot: _simSlot,
       simLabel: _simLabel,
       isActive: true,
       createdAt: widget.existing?.createdAt ?? DateTime.now(),
       sentCount: widget.existing?.sentCount,
-      // NOTE: add `repeatIntervalMinutes` (int) to the ScheduledMessage
-      // model/constructor for this to compile. Only meaningful when
-      // repetition != Repetition.none.
       repeatIntervalMinutes: _isCustomRepetition ? _repeatIntervalMinutes : null,
     );
 
@@ -946,6 +1172,74 @@ class _GlassPillButton extends StatelessWidget {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// ── Audience option tile reused in the SEND_TO picker sheet.
+class _AudienceOption extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _AudienceOption({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: selected
+              ? Colors.white.withValues(alpha: 0.1)
+              : Colors.white.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected
+                ? Colors.white.withValues(alpha: 0.25)
+                : Colors.white.withValues(alpha: 0.08),
+            width: 0.5,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: selected ? Colors.white : Colors.white70, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(color: _Palette.muted, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+            if (selected)
+              const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 20),
+          ],
         ),
       ),
     );

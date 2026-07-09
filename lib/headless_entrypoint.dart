@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 
 import 'root/models/contact.dart';
+import 'root/models/contact_group.dart';
 import 'root/models/sms_session.dart';
 import 'root/models/scheduled_message.dart';
 import 'services/app_logger.dart';
@@ -33,6 +34,7 @@ const String _headlessChannel = 'com.example.SynCal/headless';
 ///   Repetition              → typeId: 105  (scheduled_message.dart)
 ///   ScheduleStatus          → typeId: 106  (scheduled_message.dart)
 ///   ScheduledMessage        → typeId: 107  (scheduled_message.dart)
+///   ContactGroup            → typeId: 108  (contact_group.dart)
 @pragma('vm:entry-point')
 Future<void> scheduledMessageCallbackDispatcher() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -60,10 +62,12 @@ Future<void> scheduledMessageCallbackDispatcher() async {
     registerIfAbsent(RepetitionAdapter());         // typeId: 105
     registerIfAbsent(ScheduleStatusAdapter());     // typeId: 106
     registerIfAbsent(ScheduledMessageAdapter());   // typeId: 107
+    registerIfAbsent(ContactGroupAdapter());       // typeId: 108
 
     // Open boxes — same names as main.dart (no ApiConfig.syncalBoxKey or
     // 'settings' box needed here; headless only needs these three)
     await Hive.openBox<Contact>('contacts');
+    await Hive.openBox<ContactGroup>('contact_groups');
     await Hive.openBox<SmsSession>('sms_sessions');
     await Hive.openBox<ScheduledMessage>('scheduled_messages');
 

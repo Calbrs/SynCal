@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:hive/hive.dart';
 import '../root/models/contact.dart';
+import '../root/models/contact_group.dart';
 import '../root/models/scheduled_message.dart';
 import '../root/models/sms_session.dart';
 import 'app_logger.dart';
@@ -234,33 +235,17 @@ class ScheduledMessageStore extends ChangeNotifier {
   /// ScheduleAlarmReceiver can send the SMS without booting a Flutter engine.
   Future<void> _persistToNative(ScheduledMessage schedule) async {
     try {
-      // Build recipients list from contacts box.
-      final contactBox = Hive.box<Contact>('contacts');
-      final recipients = <Map<String, String>>[];
-      for (final id in schedule.recipientIds) {
-        Contact? contact;
-        for (final c in contactBox.values) {
-          if (c.studentId != null && c.studentId.toString() == id) {
-            contact = c; break;
-          }
-        }
-        if (contact == null) {
-          final idx = contactBox.keys.toList().indexWhere((k) => k.toString() == id);
-          if (idx != -1) contact = contactBox.getAt(idx);
-        }
-        if (contact != null && contact.phones.isNotEmpty) {
-          recipients.add({'name': contact.name, 'phone': contact.phones[0]});
-        }
-      }
-      if (recipients.isEmpty) return;
+      final recipients = await _buildRecipients(schedule.recipientIds);
+      final nativeRecipients = recipients.map((r) => {'name': r.name, 'phone': r.phone}).toList();
+      if (nativeRecipients.isEmpty) return;
       await SmsGatewayService.persistScheduleForAlarm(
         scheduleId: schedule.id,
         message: schedule.message,
         triggerAt: schedule.scheduledTime,
         simSlot: schedule.simSlot,
-        recipients: recipients,
+        recipients: nativeRecipients,
       );
-      AppLogger.info(_tag, '_persistToNative: persisted ${schedule.id} with ${recipients.length} recipients');
+      AppLogger.info(_tag, '_persistToNative: persisted ${schedule.id} with ${nativeRecipients.length} recipients');
     } on MissingPluginException {
       // Expected in headless context.
     } catch (e) {
@@ -534,12 +519,38 @@ class ScheduledMessageStore extends ChangeNotifier {
 
   Future<List<SmsRecipient>> _buildRecipients(List<String> recipientIds) async {
     final contactBox = Hive.box<Contact>('contacts');
+    Box<ContactGroup>? groupBox;
+    if (Hive.isBoxOpen('contact_groups')) {
+      groupBox = Hive.box<ContactGroup>('contact_groups');
+    }
+    
     final List<SmsRecipient> result = [];
-    // Guard against contacts that share the same name (e.g. same person
-    // stored twice with different phone numbers). One SMS per unique name.
     final seenNames = <String>{};
-
+    
+    // Resolve scopes to contact keys
+    final Set<String> resolvedContactKeys = {};
     for (final id in recipientIds) {
+      if (id == 'all_contacts') {
+        for (final key in contactBox.keys) {
+          resolvedContactKeys.add(key.toString());
+        }
+      } else if (id.startsWith('group:')) {
+        if (groupBox != null) {
+          final groupId = id.substring(6);
+          final group = groupBox.values.cast<ContactGroup?>().firstWhere((g) => g?.id == groupId, orElse: () => null);
+          if (group != null) {
+            resolvedContactKeys.addAll(group.contactKeys);
+          }
+        }
+      } else if (id.startsWith('contact:')) {
+        resolvedContactKeys.add(id.substring(8));
+      } else {
+        // Legacy: raw contact key
+        resolvedContactKeys.add(id);
+      }
+    }
+
+    for (final id in resolvedContactKeys) {
       Contact? contact;
 
       for (final c in contactBox.values) {
@@ -550,9 +561,7 @@ class ScheduledMessageStore extends ChangeNotifier {
       }
 
       if (contact == null) {
-        final index = contactBox.keys
-            .toList()
-            .indexWhere((key) => key.toString() == id);
+        final index = contactBox.keys.toList().indexWhere((key) => key.toString() == id);
         if (index != -1) {
           contact = contactBox.getAt(index);
         }

@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import '../models/contact.dart';
+import '../models/contact_group.dart';
 import '../models/sms_session.dart';
 import '../../services/sms_gateway_service.dart';
 import '../../services/sms_session_store.dart';
@@ -697,12 +698,31 @@ class _HomeScreenState extends State<HomeScreen> {
   void _showMessageDrawer(BuildContext context) {
     final msgController = TextEditingController();
     SimCard? drawerSim = _selectedSim;
+    // Audience state: 'all', 'group', or 'individuals'
+    String audienceMode = 'all';
+    ContactGroup? selectedGroup;
+    List<String> selectedContactKeys = [];
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
         return StatefulBuilder(builder: (ctx, setModalState) {
+          // Build audience label
+          String audienceLabel;
+          switch (audienceMode) {
+            case 'group':
+              audienceLabel = selectedGroup?.name ?? 'Select Group';
+              break;
+            case 'individuals':
+              audienceLabel = selectedContactKeys.isEmpty
+                  ? 'Select People'
+                  : '${selectedContactKeys.length} selected';
+              break;
+            default:
+              audienceLabel = 'All Contacts';
+          }
+
           return Padding(
             padding: EdgeInsets.only(
               bottom: MediaQuery.of(ctx).viewInsets.bottom + 2,
@@ -757,8 +777,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ],
                       ),
                       const SizedBox(height: 16),
-                      // ── SIM selector: one row, two side-by-side option
-                      // buttons (segmented style), same pattern as before.
+                      // ── SIM selector
                       if (_simCards.isNotEmpty)
                         Row(
                           children: List.generate(_simCards.length, (i) {
@@ -795,7 +814,49 @@ class _HomeScreenState extends State<HomeScreen> {
                             );
                           }),
                         ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
+                      // ── Audience selector row
+                      GestureDetector(
+                        onTap: () => _showAudiencePicker(ctx, setModalState, audienceMode, selectedGroup, selectedContactKeys, (mode, group, keys) {
+                          setModalState(() {
+                            audienceMode = mode;
+                            selectedGroup = group;
+                            selectedContactKeys = keys;
+                          });
+                        }),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.05),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: Colors.white.withValues(alpha: 0.08), width: 0.5),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                audienceMode == 'all' ? Icons.people_rounded
+                                    : audienceMode == 'group' ? Icons.groups_rounded
+                                    : Icons.person_rounded,
+                                color: Colors.white70, size: 18,
+                              ),
+                              const SizedBox(width: 10),
+                              Text(
+                                'Send to: ',
+                                style: TextStyle(color: _Palette.muted, fontSize: 13),
+                              ),
+                              Expanded(
+                                child: Text(
+                                  audienceLabel,
+                                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              Icon(Icons.chevron_right_rounded, color: Colors.white.withValues(alpha: 0.3), size: 18),
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
                       TextField(
                         controller: msgController,
                         maxLines: 4,
@@ -819,7 +880,6 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      // ── Live char / segment counter, monospace, digital feel.
                       ValueListenableBuilder<TextEditingValue>(
                         valueListenable: msgController,
                         builder: (context, value, _) {
@@ -864,6 +924,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                       message: text,
                                       simSlot: drawerSim?.slotIndex ?? -1,
                                       simLabel: drawerSim?.displayName ?? 'Default SIM',
+                                      contactKeys: audienceMode == 'individuals' ? selectedContactKeys : null,
+                                      groupId: audienceMode == 'group' ? selectedGroup?.id : null,
                                     );
                                   }
                                 },
@@ -882,6 +944,324 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                     ],
                   ),
+                ),
+              ),
+            ),
+          );
+        });
+      },
+    );
+  }
+
+  // ── Audience picker: lets user choose All / Group / Individuals
+  void _showAudiencePicker(
+    BuildContext parentCtx,
+    StateSetter setParentState,
+    String currentMode,
+    ContactGroup? currentGroup,
+    List<String> currentKeys,
+    void Function(String mode, ContactGroup? group, List<String> keys) onResult,
+  ) {
+    showModalBottomSheet(
+      context: parentCtx,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(22, 14, 22, 28),
+              decoration: BoxDecoration(
+                color: _Palette.surface.withValues(alpha: 0.95),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 18),
+                      decoration: BoxDecoration(color: _Palette.hairline, borderRadius: BorderRadius.circular(2)),
+                    ),
+                  ),
+                  const Text(
+                    'SEND_TO',
+                    style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700, fontFamily: 'monospace', letterSpacing: 0.8),
+                  ),
+                  const SizedBox(height: 16),
+                  // Option 1: All Contacts
+                  _AudienceOption(
+                    icon: Icons.people_rounded,
+                    label: 'All Contacts',
+                    subtitle: 'Send to everyone in your list',
+                    selected: currentMode == 'all',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      onResult('all', null, []);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  // Option 2: Group
+                  _AudienceOption(
+                    icon: Icons.groups_rounded,
+                    label: 'Group',
+                    subtitle: currentGroup?.name ?? 'Choose a group',
+                    selected: currentMode == 'group',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showGroupPicker(parentCtx, setParentState, currentGroup, onResult);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  // Option 3: Individuals
+                  _AudienceOption(
+                    icon: Icons.person_rounded,
+                    label: 'Individuals',
+                    subtitle: currentKeys.isEmpty ? 'Pick specific people' : '${currentKeys.length} selected',
+                    selected: currentMode == 'individuals',
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showIndividualPicker(parentCtx, setParentState, currentKeys, onResult);
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showGroupPicker(
+    BuildContext parentCtx,
+    StateSetter setParentState,
+    ContactGroup? currentGroup,
+    void Function(String mode, ContactGroup? group, List<String> keys) onResult,
+  ) {
+    final groupBox = Hive.box<ContactGroup>('contact_groups');
+    final groups = groupBox.values.toList();
+    if (groups.isEmpty) {
+      ScaffoldMessenger.of(parentCtx).showSnackBar(
+        SnackBar(
+          content: const Text('No groups yet. Create one in Contacts.'),
+          backgroundColor: _Palette.surface,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    showModalBottomSheet(
+      context: parentCtx,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return ClipRRect(
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+            child: Container(
+              constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.5),
+              padding: const EdgeInsets.fromLTRB(22, 14, 22, 28),
+              decoration: BoxDecoration(
+                color: _Palette.surface.withValues(alpha: 0.95),
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5)),
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36, height: 4,
+                      margin: const EdgeInsets.only(bottom: 18),
+                      decoration: BoxDecoration(color: _Palette.hairline, borderRadius: BorderRadius.circular(2)),
+                    ),
+                  ),
+                  const Text('SELECT_GROUP', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700, fontFamily: 'monospace', letterSpacing: 0.8)),
+                  const SizedBox(height: 16),
+                  Flexible(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: groups.length,
+                      itemBuilder: (_, i) {
+                        final g = groups[i];
+                        final isSel = currentGroup?.id == g.id;
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: GestureDetector(
+                            onTap: () {
+                              Navigator.pop(ctx);
+                              onResult('group', g, []);
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                              decoration: BoxDecoration(
+                                color: isSel ? Colors.white.withValues(alpha: 0.1) : Colors.white.withValues(alpha: 0.04),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: isSel ? Colors.white.withValues(alpha: 0.25) : Colors.white.withValues(alpha: 0.08), width: 0.5),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.groups_rounded, color: Colors.white70, size: 20),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(g.name, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+                                        Text('${g.contactKeys.length} members', style: TextStyle(color: _Palette.muted, fontSize: 12)),
+                                      ],
+                                    ),
+                                  ),
+                                  if (isSel) const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 20),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showIndividualPicker(
+    BuildContext parentCtx,
+    StateSetter setParentState,
+    List<String> currentKeys,
+    void Function(String mode, ContactGroup? group, List<String> keys) onResult,
+  ) {
+    final contactBox = Hive.box<Contact>('contacts');
+    final contactKeys = contactBox.keys.toList();
+    final contactValues = contactBox.values.toList();
+    final all = List.generate(contactKeys.length, (i) => MapEntry(contactKeys[i], contactValues[i]))
+        .where((e) => !e.value.isDeleted)
+        .toList();
+    if (all.isEmpty) {
+      ScaffoldMessenger.of(parentCtx).showSnackBar(
+        SnackBar(
+          content: const Text('No contacts yet. Add contacts first.'),
+          backgroundColor: _Palette.surface,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+    final selected = Set<String>.from(currentKeys);
+    showModalBottomSheet(
+      context: parentCtx,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(builder: (ctx, setSheetState) {
+          return ClipRRect(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 30, sigmaY: 30),
+              child: Container(
+                height: MediaQuery.of(ctx).size.height * 0.7,
+                padding: const EdgeInsets.fromLTRB(22, 14, 22, 12),
+                decoration: BoxDecoration(
+                  color: _Palette.surface.withValues(alpha: 0.95),
+                  borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                  border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08), width: 0.5)),
+                ),
+                child: Column(
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 36, height: 4,
+                        margin: const EdgeInsets.only(bottom: 18),
+                        decoration: BoxDecoration(color: _Palette.hairline, borderRadius: BorderRadius.circular(2)),
+                      ),
+                    ),
+                    const Text('SELECT_PEOPLE', style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700, fontFamily: 'monospace', letterSpacing: 0.8)),
+                    const SizedBox(height: 16),
+                    Expanded(
+                      child: ListView.builder(
+                        itemCount: all.length,
+                        itemBuilder: (_, i) {
+                          final entry = all[i];
+                          final c = entry.value;
+                          final key = entry.key.toString();
+                          final sel = selected.contains(key);
+                          return InkWell(
+                            onTap: () {
+                              setSheetState(() {
+                                if (sel) { selected.remove(key); } else { selected.add(key); }
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(14),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 40, height: 40,
+                                    decoration: BoxDecoration(
+                                      color: sel ? Colors.greenAccent.withValues(alpha: 0.18) : Colors.white.withValues(alpha: 0.06),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    alignment: Alignment.center,
+                                    child: Text(
+                                      c.name.isNotEmpty ? c.name[0].toUpperCase() : '?',
+                                      style: TextStyle(color: sel ? Colors.greenAccent : Colors.white, fontSize: 15, fontWeight: FontWeight.w700),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Text(c.name, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w500)),
+                                  ),
+                                  AnimatedContainer(
+                                    duration: const Duration(milliseconds: 180),
+                                    width: 22, height: 22,
+                                    decoration: BoxDecoration(
+                                      color: sel ? Colors.greenAccent : Colors.transparent,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(color: sel ? Colors.greenAccent : Colors.white38, width: 1.4),
+                                    ),
+                                    child: sel ? const Icon(Icons.check, color: Colors.black, size: 14) : null,
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    SafeArea(
+                      top: false,
+                      child: Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.greenAccent.withValues(alpha: 0.16),
+                            shadowColor: Colors.transparent,
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                            minimumSize: const Size.fromHeight(52),
+                          ),
+                          onPressed: () {
+                            Navigator.pop(ctx);
+                            onResult('individuals', null, selected.toList());
+                          },
+                          child: Text(
+                            'Done (${selected.length})',
+                            style: const TextStyle(color: Colors.greenAccent, fontSize: 15, fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
@@ -1127,5 +1507,58 @@ class _SessionBanner extends StatelessWidget {
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     if (diff.inDays < 7) return '${diff.inDays}d ago';
     return DateFormat('MMM dd').format(time);
+  }
+}
+
+class _AudienceOption extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String subtitle;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _AudienceOption({
+    required this.icon,
+    required this.label,
+    required this.subtitle,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        decoration: BoxDecoration(
+          color: selected ? Colors.white.withValues(alpha: 0.1) : Colors.white.withValues(alpha: 0.04),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected ? Colors.white.withValues(alpha: 0.25) : Colors.white.withValues(alpha: 0.08),
+            width: 0.5,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: selected ? Colors.white : Colors.white70, size: 22),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: selected ? FontWeight.w700 : FontWeight.w500)),
+                  const SizedBox(height: 2),
+                  Text(subtitle, style: TextStyle(color: _Palette.muted, fontSize: 12)),
+                ],
+              ),
+            ),
+            if (selected)
+              const Icon(Icons.check_circle_rounded, color: Colors.greenAccent, size: 20),
+          ],
+        ),
+      ),
+    );
   }
 }
